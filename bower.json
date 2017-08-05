@@ -15,5 +15,9 @@
   "devDependencies": {
     "purescript-psci-support": "^3.0.0"
   },
-  "license": "BSD-3-Clause"
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/athanclark/purescript-queue.git"
+  }
 }
