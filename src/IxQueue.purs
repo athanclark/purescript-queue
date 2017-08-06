@@ -8,24 +8,24 @@ import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_)
-import Control.Monad.Eff (Eff)
+import Control.Monad.Eff (kind Effect, Eff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
 import Signal.Channel (CHANNEL)
 
 
-newtype IxQueue k a = IxQueue (Ref (Map k (Queue a)))
+newtype IxQueue (eff :: # Effect) k a = IxQueue (Ref (Map k (Queue eff a)))
 
 
 newIxQueue :: forall eff k a
             . Eff ( channel :: CHANNEL
                   , ref     :: REF
-                  | eff) (IxQueue k a)
+                  | eff) (IxQueue (channel :: CHANNEL, ref :: REF | eff) k a)
 newIxQueue = IxQueue <$> newRef Map.empty
 
 
 putIxQueue :: forall eff k a
             . Ord k
-           => IxQueue k a
+           => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
            -> k
            -> a
            -> Eff ( channel :: CHANNEL
@@ -46,9 +46,9 @@ putIxQueue (IxQueue qsRef) k x = do
 -- | new one, then inserts the read entities.
 injectIxQueue :: forall eff k a
                . Ord k
-              => IxQueue k a
+              => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
               -> k
-              -> Queue a
+              -> Queue (channel :: CHANNEL, ref :: REF | eff) a
               -> Eff ( channel :: CHANNEL
                      , ref     :: REF
                      | eff) Unit
@@ -65,7 +65,7 @@ injectIxQueue (IxQueue qsRef) k q = do
 
 onIxQueue :: forall eff k a
            . Ord k
-          => IxQueue k a
+          => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
           -> k
           -> (a -> Eff ( channel :: CHANNEL
                        , ref     :: REF
@@ -85,7 +85,7 @@ onIxQueue (IxQueue qsRef) k f = do
 
 delIxQueue :: forall eff k a
             . Ord k
-           => IxQueue k a
+           => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
            -> k
            -> Eff ( channel :: CHANNEL
                   , ref     :: REF
