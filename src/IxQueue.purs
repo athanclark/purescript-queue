@@ -3,10 +3,11 @@ module IxQueue
   ) where
 
 import Prelude
-import Queue (Queue, newQueue, putQueue, onQueue)
+import Queue (Queue, newQueue, putQueue, onQueue, takeQueue)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe (..))
+import Data.Traversable (traverse_)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
 import Signal.Channel (CHANNEL)
@@ -40,15 +41,26 @@ putIxQueue (IxQueue qsRef) k x = do
     Just q -> putQueue q x
 
 
+-- | **Note**: if a Queue already exists in the IxQueue, then it _reads_
+-- | all of the values in the existing queue before replacing it with the
+-- | new one, then inserts the read entities.
 injectIxQueue :: forall eff k a
                . Ord k
               => IxQueue k a
               -> k
               -> Queue a
-              -> Eff ( ref     :: REF
+              -> Eff ( channel :: CHANNEL
+                     , ref     :: REF
                      | eff) Unit
-injectIxQueue (IxQueue qsRef) k q =
-  modifyRef qsRef (Map.insert k q)
+injectIxQueue (IxQueue qsRef) k q = do
+  qs <- readRef qsRef
+  case Map.lookup k qs of
+    Nothing ->
+      writeRef qsRef (Map.insert k q qs)
+    Just q' -> do
+      xs <- takeQueue q'
+      writeRef qsRef (Map.insert k q qs)
+      traverse_ (putQueue q) xs
 
 
 onIxQueue :: forall eff k a
