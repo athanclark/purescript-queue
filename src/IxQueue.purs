@@ -1,5 +1,5 @@
 module IxQueue
-  ( IxQueue, newIxQueue, putIxQueue, injectIxQueue, onIxQueue, delIxQueue
+  ( IxQueue, newIxQueue, putIxQueue, injectIxQueue, onIxQueue, delIxQueue, touchIxQueue
   ) where
 
 import Prelude
@@ -13,19 +13,19 @@ import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
 import Signal.Channel (CHANNEL)
 
 
-newtype IxQueue (eff :: # Effect) k a = IxQueue (Ref (Map k (Queue eff a)))
+newtype IxQueue k a = IxQueue (Ref (Map k (Queue a)))
 
 
 newIxQueue :: forall eff k a
             . Eff ( channel :: CHANNEL
                   , ref     :: REF
-                  | eff) (IxQueue (channel :: CHANNEL, ref :: REF | eff) k a)
+                  | eff) (IxQueue k a)
 newIxQueue = IxQueue <$> newRef Map.empty
 
 
 putIxQueue :: forall eff k a
             . Ord k
-           => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
+           => IxQueue k a
            -> k
            -> a
            -> Eff ( channel :: CHANNEL
@@ -46,9 +46,9 @@ putIxQueue (IxQueue qsRef) k x = do
 -- | new one, then inserts the read entities.
 injectIxQueue :: forall eff k a
                . Ord k
-              => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
+              => IxQueue k a
               -> k
-              -> Queue (channel :: CHANNEL, ref :: REF | eff) a
+              -> Queue a
               -> Eff ( channel :: CHANNEL
                      , ref     :: REF
                      | eff) Unit
@@ -63,9 +63,21 @@ injectIxQueue (IxQueue qsRef) k q = do
       traverse_ (putQueue q) xs
 
 
+touchIxQueue :: forall eff k a
+              . Ord k
+             => IxQueue k a
+             -> k
+             -> Eff ( channel :: CHANNEL
+                    , ref     :: REF
+                    | eff) Unit
+touchIxQueue queue k = do
+  q <- newQueue
+  injectIxQueue queue k q
+
+
 onIxQueue :: forall eff k a
            . Ord k
-          => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
+          => IxQueue k a
           -> k
           -> (a -> Eff ( channel :: CHANNEL
                        , ref     :: REF
@@ -85,7 +97,7 @@ onIxQueue (IxQueue qsRef) k f = do
 
 delIxQueue :: forall eff k a
             . Ord k
-           => IxQueue (channel :: CHANNEL, ref :: REF | eff) k a
+           => IxQueue k a
            -> k
            -> Eff ( channel :: CHANNEL
                   , ref     :: REF

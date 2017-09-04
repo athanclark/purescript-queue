@@ -12,7 +12,7 @@ import Signal.Channel (CHANNEL, Channel, channel, send, subscribe)
 
 
 
-newtype Queue (eff :: # Effect) a = Queue
+newtype Queue a = Queue
   { pending :: Ref (Array a)
   , chan    :: Channel Unit
   }
@@ -21,7 +21,7 @@ newtype Queue (eff :: # Effect) a = Queue
 newQueue :: forall eff a
           . Eff ( channel :: CHANNEL
                 , ref     :: REF
-                | eff) (Queue (channel :: CHANNEL, ref :: REF | eff) a)
+                | eff) (Queue a)
 newQueue = do
   chan <- channel unit
   pending <- newRef []
@@ -30,7 +30,7 @@ newQueue = do
 
 -- | Signal the listener with a value - note that there can be any number of writers to the queue.
 putQueue :: forall eff a
-          . Queue (channel :: CHANNEL, ref :: REF | eff) a
+          . Queue a
          -> a
          -> Eff ( channel :: CHANNEL
                 , ref     :: REF
@@ -42,7 +42,7 @@ putQueue (Queue {pending,chan}) x = do
 
 -- | There should only be one listener at a time per queue - multiple readers would cause a race condition.
 onQueue :: forall eff a
-         . Queue (channel :: CHANNEL, ref :: REF | eff) a
+         . Queue a
         -> (a -> Eff ( channel :: CHANNEL
                      , ref     :: REF
                      | eff) Unit)
@@ -59,7 +59,7 @@ onQueue (Queue {pending,chan}) f =
 
 -- | Read the entities in the queue without triggering the onQueue callback.
 readQueue :: forall eff a
-           . Queue (ref :: REF | eff) a
+           . Queue a
           -> Eff ( ref :: REF
                  | eff) (Array a)
 readQueue (Queue {pending}) =
@@ -67,7 +67,7 @@ readQueue (Queue {pending}) =
 
 -- | Take the entities out of the queue without triggering the onQueue callback.
 takeQueue :: forall eff a
-           . Queue (ref :: REF | eff) a
+           . Queue a
           -> Eff ( ref :: REF
                  | eff) (Array a)
 takeQueue (Queue {pending}) = do
