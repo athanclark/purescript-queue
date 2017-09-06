@@ -1,9 +1,9 @@
 module IxQueue
-  ( IxQueue, newIxQueue, putIxQueue, injectIxQueue, onIxQueue, delIxQueue, touchIxQueue
+  ( IxQueue, newIxQueue, putIxQueue, putManyIxQueue, broadcastIxQueue, broadcastManyIxQueue, injectIxQueue, onIxQueue, delIxQueue, touchIxQueue
   ) where
 
 import Prelude
-import Queue (Queue, newQueue, putQueue, onQueue, takeQueue)
+import Queue (Queue, newQueue, putQueue, putManyQueue, onQueue, takeQueue)
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe (..))
@@ -31,14 +31,47 @@ putIxQueue :: forall eff k a
            -> Eff ( channel :: CHANNEL
                   , ref     :: REF
                   | eff) Unit
-putIxQueue (IxQueue qsRef) k x = do
+putIxQueue q k x = putManyIxQueue q k [x]
+
+
+putManyIxQueue :: forall eff k a
+            . Ord k
+           => IxQueue k a
+           -> k
+           -> Array a
+           -> Eff ( channel :: CHANNEL
+                  , ref     :: REF
+                  | eff) Unit
+putManyIxQueue (IxQueue qsRef) k xs = do
   qs <- readRef qsRef
   case Map.lookup k qs of
     Nothing -> do
       q <- newQueue
       writeRef qsRef (Map.insert k q qs)
-      putQueue q x
-    Just q -> putQueue q x
+      putManyQueue q xs
+    Just q -> putManyQueue q xs
+
+
+broadcastIxQueue :: forall eff k a
+                  . Ord k
+                 => IxQueue k a
+                 -> a
+                 -> Eff ( channel :: CHANNEL
+                        , ref     :: REF
+                        | eff) Unit
+broadcastIxQueue q x = broadcastManyIxQueue q [x]
+
+
+broadcastManyIxQueue :: forall eff k a
+                      . Ord k
+                     => IxQueue k a
+                     -> Array a
+                     -> Eff ( channel :: CHANNEL
+                            , ref     :: REF
+                            | eff) Unit
+broadcastManyIxQueue q@(IxQueue qsRef) xs = do
+  ks <- Map.keys <$> readRef qsRef
+  traverse_ (\k -> putManyIxQueue q k xs) ks
 
 
 -- | **Note**: if a Queue already exists in the IxQueue, then it _reads_
