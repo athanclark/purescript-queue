@@ -1,9 +1,8 @@
 module Queue
-  ( Queue, newQueue, putQueue, onQueue, readQueue, takeQueue
+  ( Queue, newQueue, putQueue, putManyQueue, onQueue, readQueue, takeQueue
   ) where
 
 import Prelude
-import Data.Array as Array
 import Data.Traversable (traverse_)
 import Control.Monad.Eff (kind Effect, Eff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, modifyRef, writeRef)
@@ -16,7 +15,6 @@ newtype Queue a = Queue
   { pending :: Ref (Array a)
   , chan    :: Channel Unit
   }
-
 
 newQueue :: forall eff a
           . Eff ( channel :: CHANNEL
@@ -35,8 +33,16 @@ putQueue :: forall eff a
          -> Eff ( channel :: CHANNEL
                 , ref     :: REF
                 | eff) Unit
-putQueue (Queue {pending,chan}) x = do
-  modifyRef pending (\xs -> Array.snoc xs x)
+putQueue q x = putManyQueue q [x]
+
+putManyQueue :: forall eff a
+              . Queue a
+             -> Array a
+             -> Eff ( channel :: CHANNEL
+                    , ref     :: REF
+                    | eff) Unit
+putManyQueue (Queue {pending,chan}) xs = do
+  modifyRef pending (\ys -> ys <> xs)
   send chan unit
 
 
