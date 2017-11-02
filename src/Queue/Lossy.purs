@@ -14,7 +14,7 @@ import Signal.Channel (CHANNEL, Channel, channel, send, subscribe)
 
 newtype Queue a = Queue
   { pending :: Ref (Maybe a)
-  , chan    :: Channel Unit
+  , chan    :: Ref (Maybe (Channel Unit))
   }
 
 
@@ -23,7 +23,7 @@ newQueue :: forall eff a
                 , ref     :: REF
                 | eff) (Queue a)
 newQueue = do
-  chan <- channel unit
+  chan <- newRef Nothing
   pending <- newRef Nothing
   pure $ Queue {pending,chan}
 
@@ -37,7 +37,10 @@ putQueue :: forall eff a
                 | eff) Unit
 putQueue (Queue {pending,chan}) x = do
   modifyRef pending (\_ -> Just x)
-  send chan unit
+  mc <- readRef chan
+  case mc of
+    Nothing -> pure unit
+    Just c -> send c unit
 
 
 -- | There should only be one listener at a time per queue - multiple readers would cause a race condition.
@@ -49,13 +52,15 @@ onQueue :: forall eff a
         -> Eff ( channel :: CHANNEL
                , ref     :: REF
                | eff) Unit
-onQueue (Queue {pending,chan}) f =
+onQueue (Queue {pending,chan}) f = do
+  c <- channel unit
+  writeRef chan (Just c)
   runSignal $
     let go = do
           xs <- readRef pending
           writeRef pending Nothing
           traverse_ f xs
-    in  subscribe chan `sampleOn` constant go
+    in  subscribe c `sampleOn` constant go
 
 -- | Read the entities in the queue without triggering the onQueue callback.
 readQueue :: forall eff a
