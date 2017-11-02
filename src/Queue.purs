@@ -3,6 +3,7 @@ module Queue
   ) where
 
 import Prelude
+import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_)
 import Control.Monad.Eff (kind Effect, Eff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, modifyRef, writeRef)
@@ -13,7 +14,7 @@ import Signal.Channel (CHANNEL, Channel, channel, send, subscribe)
 
 newtype Queue a = Queue
   { pending :: Ref (Array a)
-  , chan    :: Channel Unit
+  , chan    :: Ref (Maybe (Channel Unit))
   }
 
 newQueue :: forall eff a
@@ -21,8 +22,8 @@ newQueue :: forall eff a
                 , ref     :: REF
                 | eff) (Queue a)
 newQueue = do
-  chan <- channel unit
   pending <- newRef []
+  chan <- newRef Nothing
   pure $ Queue {pending,chan}
 
 
@@ -43,7 +44,10 @@ putManyQueue :: forall eff a
                     | eff) Unit
 putManyQueue (Queue {pending,chan}) xs = do
   modifyRef pending (\ys -> ys <> xs)
-  send chan unit
+  mc <- readRef chan
+  case mc of
+    Nothing -> pure unit
+    Just c -> send c unit
 
 
 -- | There should only be one listener at a time per queue - multiple readers would cause a race condition.
@@ -55,13 +59,15 @@ onQueue :: forall eff a
         -> Eff ( channel :: CHANNEL
                , ref     :: REF
                | eff) Unit
-onQueue (Queue {pending,chan}) f =
+onQueue (Queue {pending,chan}) f = do
+  c <- channel unit
+  writeRef chan (Just c)
   runSignal $
     let go = do
           xs <- readRef pending
           writeRef pending []
           traverse_ f xs
-    in  subscribe chan `sampleOn` constant go
+    in  subscribe c `sampleOn` constant go
 
 -- | Read the entities in the queue without triggering the onQueue callback.
 readQueue :: forall eff a

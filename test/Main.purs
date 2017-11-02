@@ -1,9 +1,19 @@
 module Test.Main where
 
+import Queue (newQueue, putQueue, onQueue)
+
 import Prelude
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, log)
 
-main :: forall e. Eff (console :: CONSOLE | e) Unit
+main :: Eff _ Unit
 main = do
-  log "You should add some tests."
+  n <- newQueue
+
+  onQueue n \_ -> log "1"
+
+  putQueue n unit
+
+  onQueue n \_ -> log "2"
+
+  putQueue n unit
