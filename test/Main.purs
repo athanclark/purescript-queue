@@ -1,19 +1,17 @@
 module Test.Main where
 
-import Queue (newQueue, putQueue, onQueue)
+import Queue.Lossy (newQueue, putQueue, onQueueDelay)
 
 import Prelude
+import Data.Time.Duration (Milliseconds (..))
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log)
+import Control.Monad.Eff.Console (CONSOLE, log, logShow)
 
 main :: Eff _ Unit
 main = do
   n <- newQueue
 
-  onQueue n \_ -> log "1"
+  onQueueDelay n (Milliseconds 1000.0) \w -> logShow w
 
-  putQueue n unit
-
-  onQueue n \_ -> log "2"
-
-  putQueue n unit
+  putQueue n 1
+  putQueue n 2

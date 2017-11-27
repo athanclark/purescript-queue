@@ -1,12 +1,15 @@
 module Queue.Lossy
-  ( Queue, newQueue, putQueue, onQueue, readQueue, takeQueue
+  ( Queue, newQueue, putQueue, onQueue, onQueueDelay, readQueue, takeQueue
   ) where
 
 import Prelude
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_)
+import Data.Time.Duration (Milliseconds (..))
+import Data.Int (round)
 import Control.Monad.Eff (kind Effect, Eff)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, modifyRef, writeRef)
+import Control.Monad.Eff.Timer (TIMER, setTimeout, clearTimeout)
 import Signal (runSignal, sampleOn, constant)
 import Signal.Channel (CHANNEL, Channel, channel, send, subscribe)
 
@@ -60,6 +63,36 @@ onQueue (Queue {pending,chan}) f = do
           xs <- readRef pending
           writeRef pending Nothing
           traverse_ f xs
+    in  subscribe c `sampleOn` constant go
+
+-- | There should only be one listener at a time per queue - multiple readers would cause a race condition.
+onQueueDelay :: forall eff a
+         . Queue a
+        -> Milliseconds
+        -> (a -> Eff ( channel :: CHANNEL
+                     , ref     :: REF
+                     , timer   :: TIMER
+                     | eff) Unit)
+        -> Eff ( channel :: CHANNEL
+               , ref     :: REF
+               , timer   :: TIMER
+               | eff) Unit
+onQueueDelay (Queue {pending,chan}) (Milliseconds t) f = do
+  c <- channel unit
+  writeRef chan (Just c)
+
+  threadRef <- newRef Nothing
+  runSignal $
+    let go = do
+          mThread <- readRef threadRef
+          case mThread of
+            Nothing -> pure unit
+            Just thread -> clearTimeout thread
+          thread <- setTimeout (round t) do
+            xs <- readRef pending
+            writeRef pending Nothing
+            traverse_ f xs
+          writeRef threadRef (Just thread)
     in  subscribe c `sampleOn` constant go
 
 -- | Read the entities in the queue without triggering the onQueue callback.
