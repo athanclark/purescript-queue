@@ -1,7 +1,6 @@
 module Test.Main where
 
-import IxQueue (newIxQueue)
-import IxQueue.Aff (callAsync, registerSync)
+import IxQueue.Aff (callAsync, registerSync, newIOQueues)
 
 import Prelude
 import Data.Either (Either (..))
@@ -11,16 +10,15 @@ import Control.Monad.Eff.Console (CONSOLE, log, logShow, errorShow)
 
 main :: Eff _ Unit
 main = do
-  i <- newIxQueue
-  o <- newIxQueue
+  io <- newIOQueues
 
-  registerSync i o $ \x -> do
+  registerSync io $ \x -> do
     log $ "Incrementing: " <> show x
     let r = x + 1
     log $ "Result: " <> show r
     pure r
 
-  let call = callAsync i o
+  let call = callAsync io
       resolve eX = case eX of
         Left e -> errorShow e
         Right x -> logShow x
