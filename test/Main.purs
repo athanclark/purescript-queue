@@ -1,17 +1,31 @@
 module Test.Main where
 
-import Queue.Lossy (newQueue, putQueue, onQueueDelay)
+import IxQueue (newIxQueue)
+import IxQueue.Aff (callAsync, registerSync)
 
 import Prelude
-import Data.Time.Duration (Milliseconds (..))
+import Data.Either (Either (..))
+import Control.Monad.Aff (runAff_)
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log, logShow)
+import Control.Monad.Eff.Console (CONSOLE, log, logShow, errorShow)
 
 main :: Eff _ Unit
 main = do
-  n <- newQueue
+  i <- newIxQueue
+  o <- newIxQueue
 
-  onQueueDelay n (Milliseconds 1000.0) \w -> logShow w
+  registerSync i o $ \x -> do
+    log $ "Incrementing: " <> show x
+    let r = x + 1
+    log $ "Result: " <> show r
+    pure r
 
-  putQueue n 1
-  putQueue n 2
+  let call = callAsync i o
+      resolve eX = case eX of
+        Left e -> errorShow e
+        Right x -> logShow x
+
+  runAff_ resolve $ do
+    a <- call 1
+    b <- call 10
+    void $ call (a + b)
