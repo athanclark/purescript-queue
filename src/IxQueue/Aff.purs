@@ -6,19 +6,16 @@ import Prelude
 import Data.Maybe (Maybe (..))
 import Data.Either (Either (..))
 import Data.UUID (GENUUID, genUUID)
-import Control.Monad.Aff (Aff, runAff_, makeAff, nonCanceler)
-import Control.Monad.Aff.AVar (AVAR, makeEmptyVar, putVar, takeVar)
+import Control.Monad.Aff (Aff, makeAff, nonCanceler)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Ref (REF)
 
-import Control.Monad.Eff.Console (log)
-
 
 callAsync :: forall eff input output
-           . IxQueue (ref :: REF, uuid :: GENUUID, avar :: AVAR | eff) input
-          -> IxQueue (ref :: REF, uuid :: GENUUID, avar :: AVAR | eff) output
+           . IxQueue (ref :: REF, uuid :: GENUUID | eff) input
+          -> IxQueue (ref :: REF, uuid :: GENUUID | eff) output
           -> input
-          -> Aff (ref :: REF, uuid :: GENUUID, avar :: AVAR | eff) output
+          -> Aff (ref :: REF, uuid :: GENUUID | eff) output
 callAsync i o x =
   makeAff \resolve -> do
     k <- show <$> genUUID
