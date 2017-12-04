@@ -1,6 +1,6 @@
 module Test.Main where
 
-import IxQueue.Aff (callAsync, registerSync, newIOQueues)
+import Queue.Aff (callAsync, registerSync, newIOQueues)
 
 import Prelude
 import Data.Either (Either (..))

@@ -47,22 +47,18 @@ onceQueue q@(Queue queue) f' = do
   hasRun <- newRef false
   let f x = do
         r <- readRef hasRun
-        if r
-          then pure unit
-          else do
-            f' x
-            writeRef hasRun true
-            delQueue q
+        unless r (f' x)
+        writeRef hasRun true
+        delQueue q
   ePH <- readRef queue
   case ePH of
     Left pending -> do
       case Array.uncons pending of
-        Nothing -> pure unit
+        Nothing ->
+          writeRef queue (Right [f])
         Just {head,tail} -> do
           f head
-          if Array.null tail
-            then writeRef queue (Right [f])
-            else writeRef queue (Left tail)
+          writeRef queue (Left tail)
     Right handlers ->
       writeRef queue (Right (handlers <> [f]))
 
