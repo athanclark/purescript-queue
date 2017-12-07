@@ -1,25 +1,25 @@
 module Queue.Aff where
 
-import Queue.Internal (Queue, onceQueue, onQueue, putQueue, newQueue)
+import Queue.Internal (Queue, onceQueue, onQueue, putQueue, newQueue, READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
 
 import Prelude
 import Data.Either (Either (..))
 import Control.Monad.Aff (Aff, makeAff, nonCanceler)
-import Control.Monad.Eff (Eff)
+import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Ref (REF)
 
 
 
-newtype IOQueues eff input output = IOQueues
-  { input :: Queue eff input
-  , output :: Queue eff output
+newtype IOQueues (eff :: # Effect) input output = IOQueues
+  { input :: Queue (read :: READ) eff input
+  , output :: Queue (write :: WRITE) eff output
   }
 
 
 newIOQueues :: forall eff input output. Eff (ref :: REF | eff) (IOQueues (ref :: REF | eff) input output)
 newIOQueues = do
-  input <- newQueue
-  output <- newQueue
+  input <- readOnly <$> newQueue
+  output <- writeOnly <$> newQueue
   pure (IOQueues {input,output})
 
 
@@ -29,8 +29,8 @@ callAsync :: forall eff input output
           -> Aff (ref :: REF | eff) output
 callAsync (IOQueues {input,output}) x =
   makeAff \resolve -> do
-    onceQueue output \y -> resolve (Right y)
-    putQueue input x
+    onceQueue (allowReading output) \y -> resolve (Right y)
+    putQueue (allowWriting input) x
     pure nonCanceler
 
 
