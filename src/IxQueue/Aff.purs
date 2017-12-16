@@ -1,6 +1,7 @@
 module IxQueue.Aff where
 
-import IxQueue.Internal (IxQueue, onDefaultIxQueue, onceDefaultIxQueue, putIxQueue, newIxQueue)
+import Queue.Scope (READ, WRITE)
+import IxQueue.Internal (IxQueue, onDefaultIxQueue, onceDefaultIxQueue, putIxQueue, newIxQueue, readOnly, writeOnly, allowReading, allowWriting)
 
 import Prelude
 import Data.Maybe (Maybe (..))
@@ -13,8 +14,8 @@ import Control.Monad.Eff.Ref (REF)
 
 
 newtype IOQueues eff input output = IOQueues
-  { input :: IxQueue eff input
-  , output :: IxQueue eff output
+  { input :: IxQueue (read :: READ) eff input
+  , output :: IxQueue (write :: WRITE) eff output
   }
 
 
@@ -23,7 +24,7 @@ newIOQueues :: forall eff input output
 newIOQueues = do
   input <- newIxQueue
   output <- newIxQueue
-  pure (IOQueues {input,output})
+  pure (IOQueues {input: readOnly input,output: writeOnly output})
 
 
 
@@ -34,9 +35,9 @@ callAsync :: forall eff input output
 callAsync (IOQueues {input,output}) x =
   makeAff \resolve -> do
     k <- show <$> genUUID
-    onceDefaultIxQueue output \_ y ->
+    onceDefaultIxQueue (allowReading output) \_ y ->
       resolve (Right y)
-    putIxQueue input k x
+    putIxQueue (allowWriting input) k x
     pure nonCanceler -- FIXME delete handlers on cancel?
 
 

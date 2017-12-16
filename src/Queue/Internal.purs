@@ -1,4 +1,13 @@
-module Queue.Internal where
+module Queue.Internal
+  ( module Queue.Scope
+  , Queue (..), Handler
+  , newQueue, readOnly, allowWriting, writeOnly, allowReading
+  , putQueue, putManyQueue
+  , onQueue, onceQueue
+  , readQueue, takeQueue, delQueue
+  ) where
+
+import Queue.Scope (kind SCOPE, READ, WRITE)
 
 import Prelude
 import Data.Either (Either (..))
@@ -9,12 +18,6 @@ import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
 
 
-
-foreign import kind SCOPE
-
-foreign import data READ :: SCOPE
-
-foreign import data WRITE :: SCOPE
 
 
 type Handler eff a = a -> Eff eff Unit
