@@ -6,10 +6,10 @@ module IxQueue
 import IxQueue.Internal
   ( IxQueue (..)
   , readOnly, writeOnly, allowReading, allowWriting
-  , newIxQueue, putIxQueue, putManyIxQueue, putOnlyIxQueue, putOnlyManyIxQueue
+  , newIxQueue, putIxQueue, putManyIxQueue
   , broadcastIxQueue, broadcastManyIxQueue
-  , onDefaultIxQueue, onIxQueue, onceDefaultIxQueue, onceIxQueue
-  , readDefaultIxQueue, readIxQueue, takeDefaultIxQueue, takeIxQueue
-  , delDefaultIxQueue, delIxQueue, clearIxQueue
+  , onIxQueue, onceIxQueue
+  , readBroadcastIxQueue, readIxQueue, takeBroadcastIxQueue, takeIxQueue
+  , delIxQueue, clearIxQueue
   )
 import Queue.Scope (kind SCOPE, READ, WRITE)
