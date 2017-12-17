@@ -1,6 +1,6 @@
 module Queue.One
   ( module Queue.Scope
-  , Queue, Handler, newQueue, readOnly, allowWriting, writeOnly, allowReading
+  , Queue (..), Handler, newQueue, readOnly, allowWriting, writeOnly, allowReading
   , putQueue, putManyQueue, onQueue, onceQueue, takeQueue, readQueue, delQueue
   ) where
 

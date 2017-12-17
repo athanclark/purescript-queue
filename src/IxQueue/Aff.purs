@@ -1,7 +1,7 @@
 module IxQueue.Aff where
 
 import Queue.Scope (READ, WRITE)
-import IxQueue.Internal (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue, readOnly, writeOnly, allowReading, allowWriting)
+import IxQueue (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue, readOnly, writeOnly, allowReading, allowWriting)
 
 import Prelude
 import Data.Either (Either (..))

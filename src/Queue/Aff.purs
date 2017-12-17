@@ -1,6 +1,6 @@
 module Queue.Aff where
 
-import Queue.Internal (Queue, onceQueue, onQueue, putQueue, newQueue, READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
+import Queue (Queue, onceQueue, onQueue, putQueue, newQueue, READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
 
 import Prelude
 import Data.Either (Either (..))
