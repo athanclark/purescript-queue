@@ -1,7 +1,7 @@
 module Queue.One
   ( module Queue.Scope
   , Queue (..), Handler, newQueue, readOnly, allowWriting, writeOnly, allowReading
-  , putQueue, putManyQueue, onQueue, onceQueue, takeQueue, readQueue, delQueue
+  , putQueue, putManyQueue, onQueue, onceQueue, takeQueue, readQueue, delQueue, drainQueue
   ) where
 
 import Queue.Scope (kind SCOPE, READ, WRITE)
@@ -110,3 +110,8 @@ delQueue (Queue queue) = do
   case ePH of
     Left _ -> pure unit
     Right _ -> writeRef queue (Left [])
+
+
+
+drainQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
+drainQueue q = onQueue q \_ -> pure unit

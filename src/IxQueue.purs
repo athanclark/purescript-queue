@@ -6,7 +6,7 @@ module IxQueue
   , broadcastIxQueue, broadcastManyIxQueue
   , onIxQueue, onceIxQueue
   , readBroadcastIxQueue, readIxQueue, takeBroadcastIxQueue, takeIxQueue
-  , delIxQueue, clearIxQueue
+  , delIxQueue, clearIxQueue, drainIxQueue
   ) where
 
 import Queue.Scope (kind SCOPE, READ, WRITE)
@@ -163,3 +163,7 @@ clearIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) 
 clearIxQueue q@(IxQueue{individual}) = do
   hs <- readRef individual
   traverse_ (\k -> unit <$ delIxQueue q k) (StrMap.keys hs)
+
+
+drainIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) Unit
+drainIxQueue q k = onIxQueue q k \_ -> pure unit

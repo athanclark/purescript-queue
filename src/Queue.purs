@@ -4,7 +4,7 @@ module Queue
   , newQueue, readOnly, allowWriting, writeOnly, allowReading
   , putQueue, putManyQueue
   , onQueue, onceQueue
-  , readQueue, takeQueue, delQueue
+  , readQueue, takeQueue, delQueue, drainQueue
   ) where
 
 import Queue.Scope (kind SCOPE, READ, WRITE)
@@ -112,3 +112,8 @@ delQueue (Queue queue) = do
   case ePH of
     Left _ -> pure unit
     Right _ -> writeRef queue (Left [])
+
+-- | Adds a listener that does nothing, and "drains" any pending messages.
+drainQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
+drainQueue q =
+  onQueue q \_ -> pure unit
