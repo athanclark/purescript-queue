@@ -22,7 +22,9 @@ newIOQueues = do
   output <- writeOnly <$> newQueue
   pure (IOQueues {input,output})
 
+-- * Invoking
 
+-- | Invoke the queue in `Aff`
 callAsync :: forall eff input output
            . IOQueues (ref :: REF | eff) input output
           -> input
@@ -34,18 +36,32 @@ callAsync (IOQueues {input,output}) x =
     pure nonCanceler
 
 
+-- | Invoke the queue in `Eff`
+callAsyncEff :: forall eff input output
+              . IOQueues (ref :: REF | eff) input output
+             -> (output -> Eff (ref :: REF | eff) Unit)
+             -> input
+             -> Eff (ref :: REF | eff) Unit
+callAsyncEff (IOQueues {input,output}) f x = do
+  onceQueue (allowReading output) f
+  putQueue (allowWriting input) x
 
-registerSyncOnce :: forall eff input output
-                  . IOQueues (ref :: REF | eff) input output
-                 -> (input -> Eff (ref :: REF | eff) output)
-                 -> Eff (ref :: REF | eff) Unit
-registerSyncOnce (IOQueues {input,output}) f =
-  onceQueue input \x -> putQueue output =<< f x
 
+-- * Binding
 
+-- | For binding the receiver
 registerSync :: forall eff input output
               . IOQueues (ref :: REF | eff) input output
              -> (input -> Eff (ref :: REF | eff) output)
              -> Eff (ref :: REF | eff) Unit
 registerSync (IOQueues {input,output}) f =
   onQueue input \x -> putQueue output =<< f x
+
+
+-- | Bind a receiver only once
+registerSyncOnce :: forall eff input output
+                  . IOQueues (ref :: REF | eff) input output
+                 -> (input -> Eff (ref :: REF | eff) output)
+                 -> Eff (ref :: REF | eff) Unit
+registerSyncOnce (IOQueues {input,output}) f =
+  onceQueue input \x -> putQueue output =<< f x

@@ -1,4 +1,13 @@
-module IxQueue.Aff where
+module IxQueue.Aff
+  ( IOQueues (..)
+  , newIOQueues
+  , IOQueueKey
+  , newIOQueueKey
+  , callAsync
+  , callAsyncEff
+  , registerSync
+  , registerSyncOnce
+  ) where
 
 import Queue.Scope (READ, WRITE)
 import IxQueue (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue, readOnly, writeOnly, allowReading, allowWriting)
@@ -29,7 +38,13 @@ newIOQueues = do
 
 newtype IOQueueKey = IOQueueKey UUID
 
+newIOQueueKey :: forall eff. Eff (uuid :: GENUUID | eff) IOQueueKey
+newIOQueueKey = IOQueueKey <$> genUUID
 
+
+-- * Invoking
+
+-- | Invoke the queue in `Aff`
 callAsync :: forall eff input output
            . IOQueueKey
           -> IOQueues (ref :: REF | eff) input output
@@ -44,24 +59,40 @@ callAsync (IOQueueKey k) (IOQueues {input,output}) x =
       unit <$ liftEff (delIxQueue (allowReading output) (show k))
 
 
+-- | Invoke the queue in `Eff`
+callAsyncEff :: forall eff input output
+              . IOQueueKey
+             -> IOQueues (ref :: REF | eff) input output
+             -> (output -> Eff (ref :: REF | eff) Unit)
+             -> input
+             -> Eff (ref :: REF | eff) Unit
+callAsyncEff (IOQueueKey k) (IOQueues {input,output}) f x = do
+  onceIxQueue (allowReading output) (show k) f
+  putIxQueue (allowWriting input) (show k) x
 
-registerSyncOnce :: forall eff input output
-                  . IOQueues (ref :: REF, uuid :: GENUUID | eff) input output
-                 -> (input -> Eff (ref :: REF, uuid :: GENUUID | eff) output)
-                 -> Eff (ref :: REF, uuid :: GENUUID | eff) IOQueueKey
-registerSyncOnce (IOQueues {input,output}) f = do
-  k <- genUUID
-  onceIxQueue input (show k) \x ->
-    putIxQueue output (show k) =<< f x
-  pure (IOQueueKey k)
 
+-- * Binding
 
+-- | For binding the receiver
 registerSync :: forall eff input output
               . IOQueues (ref :: REF, uuid :: GENUUID | eff) input output
              -> (input -> Eff (ref :: REF, uuid :: GENUUID | eff) output)
              -> Eff (ref :: REF, uuid :: GENUUID | eff) IOQueueKey
 registerSync (IOQueues {input,output}) f = do
-  k <- genUUID
+  k'@(IOQueueKey k) <- newIOQueueKey
   onIxQueue input (show k) \x ->
     putIxQueue output (show k) =<< f x
-  pure (IOQueueKey k)
+  pure k'
+
+
+
+-- | Bind a receiver only once
+registerSyncOnce :: forall eff input output
+                  . IOQueues (ref :: REF, uuid :: GENUUID | eff) input output
+                 -> (input -> Eff (ref :: REF, uuid :: GENUUID | eff) output)
+                 -> Eff (ref :: REF, uuid :: GENUUID | eff) IOQueueKey
+registerSyncOnce (IOQueues {input,output}) f = do
+  k'@(IOQueueKey k) <- newIOQueueKey
+  onceIxQueue input (show k) \x ->
+    putIxQueue output (show k) =<< f x
+  pure k'
