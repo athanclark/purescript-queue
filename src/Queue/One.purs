@@ -18,26 +18,26 @@ import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
 
 
 
-newtype Queue a (rw :: # SCOPE) (eff :: # Effect) =
+newtype Queue (rw :: # SCOPE) (eff :: # Effect) a =
   Queue (Ref (Either (Array a) (Handler eff a)))
 
 
-newQueue :: forall eff a. Eff (ref :: REF | eff) (Queue a (read :: READ, write :: WRITE) (ref :: REF | eff))
+newQueue :: forall eff a. Eff (ref :: REF | eff) (Queue (read :: READ, write :: WRITE) (ref :: REF | eff) a)
 newQueue = Queue <$> newRef (Left [])
 
 
-instance queueScopeQueueOne :: QueueScope (Queue a) where
+instance queueScopeQueueOne :: QueueScope Queue where
   readOnly     (Queue q) = Queue q
   allowWriting (Queue q) = Queue q
   writeOnly    (Queue q) = Queue q
   allowReading (Queue q) = Queue q
 
 
-putQueue :: forall rw eff a. Queue a (write :: WRITE | rw) (ref :: REF | eff) -> a -> Eff (ref :: REF | eff) Unit
+putQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
 putQueue q x = putManyQueue q [x]
 
 
-putManyQueue :: forall rw eff a. Queue a (write :: WRITE | rw) (ref :: REF | eff) -> Array a -> Eff (ref :: REF | eff) Unit
+putManyQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> Array a -> Eff (ref :: REF | eff) Unit
 putManyQueue (Queue queue) xs = do
   ePH <- readRef queue
   case ePH of
@@ -45,7 +45,7 @@ putManyQueue (Queue queue) xs = do
     Right f -> traverse_ f xs
 
 
-onQueue :: forall rw eff a. Queue a (read :: READ | rw) (ref :: REF | eff) -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
+onQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
 onQueue (Queue queue) f = do
   ePH <- readRef queue
   case ePH of
@@ -57,7 +57,7 @@ onQueue (Queue queue) f = do
 
 
 -- | Treat this as the only handler, and on the next input, clear all handlers.
-onceQueue :: forall rw eff a. Queue a (read :: READ | rw) (ref :: REF | eff) -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
+onceQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
 onceQueue q@(Queue queue) f' = do
   hasRun <- newRef false
   let f x = do
@@ -78,13 +78,13 @@ onceQueue q@(Queue queue) f' = do
       writeRef queue (Right f)
 
 
-drawQueue :: forall rw eff a. Queue a (read :: READ | rw) (ref :: REF | eff) -> Aff (ref :: REF | eff) a
+drawQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Aff (ref :: REF | eff) a
 drawQueue q = makeAff \resolve -> do
   onceQueue q (resolve <<< Right)
   pure nonCanceler
 
 
-readQueue :: forall rw eff a. Queue a rw (ref :: REF | eff) -> Eff (ref :: REF | eff) (Array a)
+readQueue :: forall rw eff a. Queue rw (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
 readQueue (Queue queue) = do
   ePH <- readRef queue
   case ePH of
@@ -92,7 +92,7 @@ readQueue (Queue queue) = do
     Right _ -> pure []
 
 
-takeQueue :: forall rw eff a. Queue a (write :: WRITE | rw) (ref :: REF | eff) -> Eff (ref :: REF | eff) (Array a)
+takeQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
 takeQueue (Queue queue) = do
   ePH <- readRef queue
   case ePH of
@@ -103,7 +103,7 @@ takeQueue (Queue queue) = do
 
 
 -- | Removes the registered callbacks, if any.
-delQueue :: forall rw eff a. Queue a (read :: READ | rw) (ref :: REF | eff) -> Eff (ref :: REF | eff) Unit
+delQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
 delQueue (Queue queue) = do
   ePH <- readRef queue
   case ePH of
@@ -112,5 +112,5 @@ delQueue (Queue queue) = do
 
 
 
-drainQueue :: forall rw eff a. Queue a (read :: READ | rw) (ref :: REF | eff) -> Eff (ref :: REF | eff) Unit
+drainQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
 drainQueue q = onQueue q \_ -> pure unit

@@ -23,8 +23,8 @@ import Control.Monad.Eff.Ref (REF)
 
 
 newtype IOQueues eff input output = IOQueues
-  { input :: IxQueue input (read :: READ) eff
-  , output :: IxQueue output (write :: WRITE) eff
+  { input :: IxQueue (read :: READ) eff input
+  , output :: IxQueue (write :: WRITE) eff output
   }
 
 
