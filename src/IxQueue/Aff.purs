@@ -9,8 +9,8 @@ module IxQueue.Aff
   , registerSyncOnce
   ) where
 
-import Queue.Scope (READ, WRITE)
-import IxQueue (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue, readOnly, writeOnly, allowReading, allowWriting)
+import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
+import IxQueue (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue)
 
 import Prelude
 import Data.Either (Either (..))
@@ -23,8 +23,8 @@ import Control.Monad.Eff.Ref (REF)
 
 
 newtype IOQueues eff input output = IOQueues
-  { input :: IxQueue (read :: READ) eff input
-  , output :: IxQueue (write :: WRITE) eff output
+  { input :: IxQueue input (read :: READ) eff
+  , output :: IxQueue output (write :: WRITE) eff
   }
 
 

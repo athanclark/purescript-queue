@@ -1,15 +1,14 @@
 module IxQueue
-  ( module Queue.Scope
+  ( module Queue.Types
   , IxQueue (..)
-  , readOnly, writeOnly, allowReading, allowWriting
   , newIxQueue, putIxQueue, putManyIxQueue
   , broadcastIxQueue, broadcastManyIxQueue
-  , onIxQueue, onceIxQueue
+  , onIxQueue, onceIxQueue, drawIxQueue
   , readBroadcastIxQueue, readIxQueue, takeBroadcastIxQueue, takeIxQueue
   , delIxQueue, clearIxQueue, drainIxQueue
   ) where
 
-import Queue.Scope (kind SCOPE, READ, WRITE)
+import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
 import Prelude
 import Data.StrMap (StrMap)
@@ -19,39 +18,34 @@ import Data.Maybe (Maybe (..))
 import Data.Tuple (Tuple (..))
 import Data.Traversable (traverse_)
 import Data.Array as Array
+import Control.Monad.Aff (Aff, makeAff, nonCanceler)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
 
 
-newtype IxQueue (rw :: # SCOPE) (eff :: # Effect) a = IxQueue
-  { individual :: Ref (StrMap (Either (Array a) (a -> Eff eff Unit)))
+newtype IxQueue a (rw :: # SCOPE) (eff :: # Effect) = IxQueue
+  { individual :: Ref (StrMap (Either (Array a) (Handler eff a)))
   , broadcast  :: Ref (Array a)
   }
 
 
-readOnly :: forall rw eff a. IxQueue (read :: READ | rw) eff a -> IxQueue (read :: READ) eff a
-readOnly (IxQueue xs) = IxQueue xs
-
-allowWriting :: forall rw eff a. IxQueue (read :: READ) eff a -> IxQueue (read :: READ | rw) eff a
-allowWriting (IxQueue xs) = IxQueue xs
-
-writeOnly :: forall rw eff a. IxQueue (write :: WRITE | rw) eff a -> IxQueue (write :: WRITE) eff a
-writeOnly (IxQueue xs) = IxQueue xs
-
-allowReading :: forall rw eff a. IxQueue (write :: WRITE) eff a -> IxQueue (write :: WRITE | rw) eff a
-allowReading (IxQueue xs) = IxQueue xs
-
-
-newIxQueue :: forall eff a. Eff (ref :: REF | eff) (IxQueue (read :: READ, write :: WRITE) (ref :: REF | eff) a)
+newIxQueue :: forall eff a. Eff (ref :: REF | eff) (IxQueue a (read :: READ, write :: WRITE) (ref :: REF | eff))
 newIxQueue = do
   individual <- newRef StrMap.empty
   broadcast <- newRef []
   pure (IxQueue {individual,broadcast})
 
-putIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> a -> Eff (ref :: REF | eff) Unit
+
+instance queueScopeIxQueue :: QueueScope (IxQueue a) where
+  readOnly     (IxQueue xs) = IxQueue xs
+  allowWriting (IxQueue xs) = IxQueue xs
+  writeOnly    (IxQueue xs) = IxQueue xs
+  allowReading (IxQueue xs) = IxQueue xs
+
+putIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> String -> a -> Eff (ref :: REF | eff) Unit
 putIxQueue q k x = putManyIxQueue q k [x]
 
-putManyIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> Array a -> Eff (ref :: REF | eff) Unit
+putManyIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> String -> Array a -> Eff (ref :: REF | eff) Unit
 putManyIxQueue (IxQueue {individual}) k xs = do
   hs <- readRef individual
   case StrMap.lookup k hs of
@@ -63,11 +57,11 @@ putManyIxQueue (IxQueue {individual}) k xs = do
 
 
 
-broadcastIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
+broadcastIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> a -> Eff (ref :: REF | eff) Unit
 broadcastIxQueue q x = broadcastManyIxQueue q [x]
 
 
-broadcastManyIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array a -> Eff (ref :: REF | eff) Unit
+broadcastManyIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> Array a -> Eff (ref :: REF | eff) Unit
 broadcastManyIxQueue (IxQueue {individual,broadcast}) xs = do
   hs <- readRef individual
   if StrMap.isEmpty $ StrMap.filter (\e -> case e of
@@ -87,7 +81,7 @@ broadcastManyIxQueue (IxQueue {individual,broadcast}) xs = do
         xs
 
 
-onIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> (a -> Eff (ref :: REF | eff) Unit) -> Eff (ref :: REF | eff) Unit
+onIxQueue :: forall eff a rw. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> String -> (Handler (ref :: REF | eff) a) -> Eff (ref :: REF | eff) Unit
 onIxQueue (IxQueue {individual,broadcast}) k f = do
   bs <- readRef broadcast
   when (Array.null bs) $ do
@@ -102,7 +96,7 @@ onIxQueue (IxQueue {individual,broadcast}) k f = do
   writeRef individual (StrMap.insert k (Right f) hs)
 
 
-onceIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> (a -> Eff (ref :: REF | eff) Unit) -> Eff (ref :: REF | eff) Unit
+onceIxQueue :: forall eff a rw. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> String -> (Handler (ref :: REF | eff) a) -> Eff (ref :: REF | eff) Unit
 onceIxQueue q k f = do
   (hasRun :: Ref Boolean) <- newRef false
   onIxQueue q k \x -> do
@@ -113,7 +107,13 @@ onceIxQueue q k f = do
       unit <$ delIxQueue q k
 
 
-readIxQueue :: forall eff a rw. IxQueue rw (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) (Array a)
+drawIxQueue :: forall rw eff a. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> String -> Aff (ref :: REF | eff) a
+drawIxQueue q k = makeAff \resolve -> do
+  onceIxQueue q k (resolve <<< Right)
+  pure nonCanceler
+
+
+readIxQueue :: forall eff a rw. IxQueue a rw (ref :: REF | eff) -> String -> Eff (ref :: REF | eff) (Array a)
 readIxQueue (IxQueue {individual}) k = do
   hs <- readRef individual
   case StrMap.lookup k hs of
@@ -123,11 +123,11 @@ readIxQueue (IxQueue {individual}) k = do
       Right _ -> pure []
 
 
-readBroadcastIxQueue :: forall eff a rw. IxQueue rw (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
+readBroadcastIxQueue :: forall eff a rw. IxQueue a rw (ref :: REF | eff) -> Eff (ref :: REF | eff) (Array a)
 readBroadcastIxQueue (IxQueue {broadcast}) = readRef broadcast
 
 
-takeIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) (Array a)
+takeIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> String -> Eff (ref :: REF | eff) (Array a)
 takeIxQueue (IxQueue {individual}) k = do
   hs <- readRef individual
   case StrMap.lookup k hs of
@@ -139,7 +139,7 @@ takeIxQueue (IxQueue {individual}) k = do
       Right _ -> pure []
 
 
-takeBroadcastIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
+takeBroadcastIxQueue :: forall eff a rw. IxQueue a (write :: WRITE | rw) (ref :: REF | eff) -> Eff (ref :: REF | eff) (Array a)
 takeBroadcastIxQueue (IxQueue {broadcast}) = do
   xs <- readRef broadcast
   writeRef broadcast []
@@ -147,7 +147,7 @@ takeBroadcastIxQueue (IxQueue {broadcast}) = do
 
 
 -- | Unregisters a handler, returns whether one existed
-delIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) Boolean
+delIxQueue :: forall eff a rw. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> String -> Eff (ref :: REF | eff) Boolean
 delIxQueue (IxQueue {individual}) k = do
   hs <- readRef individual
   case StrMap.lookup k hs of
@@ -159,11 +159,11 @@ delIxQueue (IxQueue {individual}) k = do
         pure true
 
 
-clearIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
+clearIxQueue :: forall eff a rw. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> Eff (ref :: REF | eff) Unit
 clearIxQueue q@(IxQueue{individual}) = do
   hs <- readRef individual
   traverse_ (\k -> unit <$ delIxQueue q k) (StrMap.keys hs)
 
 
-drainIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) Unit
+drainIxQueue :: forall eff a rw. IxQueue a (read :: READ | rw) (ref :: REF | eff) -> String -> Eff (ref :: REF | eff) Unit
 drainIxQueue q k = onIxQueue q k \_ -> pure unit

@@ -1,6 +1,7 @@
 module Queue.One.Aff where
 
-import Queue.One (Queue, onceQueue, onQueue, putQueue, newQueue, READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
+import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
+import Queue.One (Queue, onceQueue, onQueue, putQueue, newQueue)
 
 import Prelude
 import Data.Either (Either (..))
@@ -11,8 +12,8 @@ import Control.Monad.Eff.Ref (REF)
 
 
 newtype IOQueues (eff :: # Effect) input output = IOQueues
-  { input :: Queue (read :: READ) eff input
-  , output :: Queue (write :: WRITE) eff output
+  { input :: Queue input (read :: READ) eff
+  , output :: Queue output (write :: WRITE) eff
   }
 
 
