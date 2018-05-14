@@ -3,6 +3,7 @@ module IxQueue
   , IxQueue (..)
   , newIxQueue, putIxQueue, putManyIxQueue
   , broadcastIxQueue, broadcastManyIxQueue
+  , broadcastExceptIxQueue, broadcastManyExceptIxQueue
   , onIxQueue, onceIxQueue, drawIxQueue
   , readBroadcastIxQueue, readIxQueue, takeBroadcastIxQueue, takeIxQueue
   , delIxQueue, clearIxQueue, drainIxQueue
@@ -62,23 +63,33 @@ broadcastIxQueue q x = broadcastManyIxQueue q [x]
 
 
 broadcastManyIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array a -> Eff (ref :: REF | eff) Unit
-broadcastManyIxQueue (IxQueue {individual,broadcast}) xs = do
+broadcastManyIxQueue q xs = broadcastManyExceptIxQueue q [] xs
+
+
+broadcastExceptIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array String -> a -> Eff (ref :: REF | eff) Unit
+broadcastExceptIxQueue q ex x = broadcastManyExceptIxQueue q ex [x]
+
+
+broadcastManyExceptIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array String -> Array a -> Eff (ref :: REF | eff) Unit
+broadcastManyExceptIxQueue (IxQueue {individual,broadcast}) excluding xs = do
   hs <- readRef individual
-  if StrMap.isEmpty $ StrMap.filter (\e -> case e of
-                                        Right _ -> true
-                                        _ -> false) hs
+
+  let hasHandler (Right _) = true
+      hasHandler _ = false
+
+  if StrMap.isEmpty (StrMap.filter hasHandler hs)
     then modifyRef broadcast (\pending -> pending <> xs)
-    else do
-      traverse_
-        (\x ->
-          traverse_
-            (\(Tuple k ePH) ->
-              case ePH of
-                Left pending -> writeRef individual (StrMap.insert k (Left (pending <> [x])) hs)
-                Right h -> h x
-            )
-            (StrMap.toUnfoldable hs :: Array (Tuple String (Either (Array a) (a -> Eff (ref :: REF | eff) Unit)))))
-        xs
+    else
+      let go x =
+            let go' (Tuple k ePH)
+                  | k `Array.notElem` excluding = case ePH of
+                      Left pending -> writeRef individual (StrMap.insert k (Left (pending <> [x])) hs)
+                      Right h -> h x
+                  | otherwise = pure unit
+                ys :: Array (Tuple String (Either (Array a) (a -> Eff (ref :: REF | eff) Unit)))
+                ys = StrMap.toUnfoldable hs
+            in  traverse_ go' ys
+      in  traverse_ go xs
 
 
 onIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> (Handler (ref :: REF | eff) a) -> Eff (ref :: REF | eff) Unit
