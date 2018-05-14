@@ -70,6 +70,7 @@ broadcastExceptIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref ::
 broadcastExceptIxQueue q ex x = broadcastManyExceptIxQueue q ex [x]
 
 
+-- | Application policy is such that the inputs will be applied uniformly to all handlers, sorted by their keyed ordering, per input - directed by `Array`'s `Traversable` instance.
 broadcastManyExceptIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array String -> Array a -> Eff (ref :: REF | eff) Unit
 broadcastManyExceptIxQueue (IxQueue {individual,broadcast}) excluding xs = do
   hs <- readRef individual
