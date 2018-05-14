@@ -9,8 +9,9 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 import Prelude
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Data.Traversable (traverse_)
+import Data.Traversable (class Traversable, traverse_, for_)
 import Data.Array as Array
+import Data.NonEmpty (NonEmpty (..))
 import Control.Monad.Aff (Aff, makeAff, nonCanceler)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
@@ -34,15 +35,20 @@ instance queueScopeQueueOne :: QueueScope Queue where
 
 
 putQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
-putQueue q x = putManyQueue q [x]
+putQueue q x = putManyQueue q (NonEmpty x [])
 
 
-putManyQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> Array a -> Eff (ref :: REF | eff) Unit
-putManyQueue (Queue queue) xs = do
-  ePH <- readRef queue
-  case ePH of
-    Left pending -> writeRef queue (Left (pending <> xs))
-    Right f -> traverse_ f xs
+putManyQueue :: forall rw eff a t
+              . Traversable t
+             => Queue (write :: WRITE | rw) (ref :: REF | eff) a
+             -> NonEmpty t a
+             -> Eff (ref :: REF | eff) Unit
+putManyQueue (Queue queue) xss = do
+  for_ xss \x -> do
+    ePH <- readRef queue
+    case ePH of
+      Left pending -> writeRef queue (Left (pending <> [x]))
+      Right f -> f x
 
 
 onQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
@@ -59,12 +65,9 @@ onQueue (Queue queue) f = do
 -- | Treat this as the only handler, and on the next input, clear all handlers.
 onceQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
 onceQueue q@(Queue queue) f' = do
-  hasRun <- newRef false
   let f x = do
-        r <- readRef hasRun
-        unless r (f' x)
-        writeRef hasRun true
         delQueue q
+        f' x
   ePH <- readRef queue
   case ePH of
     Left pending -> do
@@ -72,7 +75,7 @@ onceQueue q@(Queue queue) f' = do
         Nothing ->
           writeRef queue (Right f)
         Just {head,tail} -> do
-          f head
+          f' head
           writeRef queue (Left tail)
     Right _ ->
       writeRef queue (Right f)

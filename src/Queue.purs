@@ -12,8 +12,9 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 import Prelude
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Data.Traversable (traverse_)
+import Data.Traversable (class Traversable, traverse_, for_)
 import Data.Array as Array
+import Data.NonEmpty (NonEmpty (..))
 import Control.Monad.Aff (Aff, makeAff, nonCanceler)
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
@@ -36,15 +37,20 @@ instance queueScopeQueue :: QueueScope Queue where
 
 
 putQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
-putQueue q x = putManyQueue q [x]
+putQueue q x = putManyQueue q (NonEmpty x [])
 
 
-putManyQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> Array a -> Eff (ref :: REF | eff) Unit
-putManyQueue (Queue queue) xs = do
-  ePH <- readRef queue
-  case ePH of
-    Left pending -> writeRef queue (Left (pending <> xs))
-    Right handlers -> traverse_ (\x -> traverse_ (\f -> f x) handlers) xs
+putManyQueue :: forall rw eff a t
+              . Traversable t
+             => Queue (write :: WRITE | rw) (ref :: REF | eff) a
+             -> NonEmpty t a
+             -> Eff (ref :: REF | eff) Unit
+putManyQueue (Queue queue) xss =
+  for_ xss \x -> do
+    ePH <- readRef queue
+    case ePH of
+      Left pending -> writeRef queue (Left (pending <> [x]))
+      Right hs -> traverse_ (\f -> f x) hs
 
 
 onQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
@@ -63,10 +69,8 @@ onceQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> 
 onceQueue q@(Queue queue) f' = do
   hasRun <- newRef false
   let f x = do
-        r <- readRef hasRun
-        unless r (f' x)
-        writeRef hasRun true
         delQueue q
+        f' x
   ePH <- readRef queue
   case ePH of
     Left pending -> do
@@ -74,7 +78,7 @@ onceQueue q@(Queue queue) f' = do
         Nothing ->
           writeRef queue (Right [f])
         Just {head,tail} -> do
-          f head
+          f' head
           writeRef queue (Left tail)
     Right handlers ->
       writeRef queue (Right (handlers <> [f]))
