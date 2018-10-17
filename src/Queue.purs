@@ -15,18 +15,22 @@ import Data.Maybe (Maybe (..))
 import Data.Traversable (class Traversable, traverse_, for_)
 import Data.Array as Array
 import Data.NonEmpty (NonEmpty (..))
-import Control.Monad.Aff (Aff, makeAff, nonCanceler)
-import Control.Monad.Eff (Eff, kind Effect)
-import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
+import Effect (Effect)
+import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Ref (Ref)
+import Effect.Ref as Ref
+-- import Control.Monad.Aff (Aff, makeAff, nonCanceler)
+-- import Control.Monad.Eff (Eff, kind Effect)
+-- import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
 
 
 
 
-newtype Queue (rw :: # SCOPE) (eff :: # Effect) a = Queue (Ref (Either (Array a) (Array (Handler eff a))))
+newtype Queue (rw :: # SCOPE) a = Queue (Ref (Either (Array a) (Array (Handler a))))
 
 
-newQueue :: forall eff a. Eff (ref :: REF | eff) (Queue (read :: READ, write :: WRITE) (ref :: REF | eff) a)
-newQueue = Queue <$> newRef (Left [])
+newQueue :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
+newQueue = Queue <$> Ref.new (Left [])
 
 
 instance queueScopeQueue :: QueueScope Queue where
@@ -36,87 +40,87 @@ instance queueScopeQueue :: QueueScope Queue where
   allowReading (Queue q) = Queue q
 
 
-putQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
-putQueue q x = putManyQueue q (NonEmpty x [])
+put :: forall rw a. Queue (write :: WRITE | rw) a -> a -> Effect Unit
+put q x = putMany q (NonEmpty x [])
 
 
-putManyQueue :: forall rw eff a t
-              . Traversable t
-             => Queue (write :: WRITE | rw) (ref :: REF | eff) a
-             -> NonEmpty t a
-             -> Eff (ref :: REF | eff) Unit
-putManyQueue (Queue queue) xss =
+putMany :: forall rw a t
+         . Traversable t
+        => Queue (write :: WRITE | rw) a
+        -> NonEmpty t a
+        -> Effect Unit
+putMany (Queue queue) xss =
   for_ xss \x -> do
-    ePH <- readRef queue
+    ePH <- Ref.read queue
     case ePH of
-      Left pending -> writeRef queue (Left (pending <> [x]))
+      Left pending -> Ref.write queue (Left (pending <> [x]))
       Right hs -> traverse_ (\f -> f x) hs
 
 
-onQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
-onQueue (Queue queue) f = do
-  ePH <- readRef queue
+on :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
+on (Queue queue) f = do
+  ePH <- Ref.read queue
   case ePH of
     Left pending -> do
       traverse_ f pending
-      writeRef queue (Right [f])
+      Ref.write queue (Right [f])
     Right handlers ->
-      writeRef queue (Right (handlers <> [f]))
+      Ref.write queue (Right (handlers <> [f]))
 
 
 -- | Treat this as the only handler, and on the next input, clear all handlers.
-onceQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Handler (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
-onceQueue q@(Queue queue) f' = do
-  hasRun <- newRef false
+once :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
+once q@(Queue queue) f' = do
+  hasRun <- Ref.new false
   let f x = do
-        delQueue q
+        del q
         f' x
-  ePH <- readRef queue
+  ePH <- Ref.read queue
   case ePH of
     Left pending -> do
       case Array.uncons pending of
         Nothing ->
-          writeRef queue (Right [f])
+          Ref.write queue (Right [f])
         Just {head,tail} -> do
           f' head
-          writeRef queue (Left tail)
+          Ref.write queue (Left tail)
     Right handlers ->
-      writeRef queue (Right (handlers <> [f]))
+      Ref.write queue (Right (handlers <> [f]))
 
 
-drawQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Aff (ref :: REF | eff) a
-drawQueue q = makeAff \resolve -> do
-  onceQueue q (resolve <<< Right)
+draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
+draw q = makeAff \resolve -> do
+  once q (resolve <<< Right)
   pure nonCanceler
 
 
-readQueue :: forall rw eff a. Queue rw (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
-readQueue (Queue queue) = do
-  ePH <- readRef queue
+read :: forall rw a. Queue rw a -> Effect (Array a)
+read (Queue queue) = do
+  ePH <- Ref.read queue
   case ePH of
     Left pending -> pure pending
     Right _ -> pure []
 
 
-takeQueue :: forall rw eff a. Queue (write :: WRITE | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
-takeQueue (Queue queue) = do
-  ePH <- readRef queue
+take :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Array a)
+take (Queue queue) = do
+  ePH <- Ref.read queue
   case ePH of
     Left pending -> do
-      writeRef queue (Left [])
+      Ref.rite queue (Left [])
       pure pending
     Right _ -> pure []
 
 
 -- | Removes the registered callbacks, if any.
-delQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
-delQueue (Queue queue) = do
-  ePH <- readRef queue
+del :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
+del (Queue queue) = do
+  ePH <- Ref.read queue
   case ePH of
     Left _ -> pure unit
-    Right _ -> writeRef queue (Left [])
+    Right _ -> Ref.write queue (Left [])
 
 -- | Adds a listener that does nothing, and "drains" any pending messages.
-drainQueue :: forall rw eff a. Queue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
-drainQueue q =
-  onQueue q \_ -> pure unit
+drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
+drain q =
+  on q \_ -> pure unit
