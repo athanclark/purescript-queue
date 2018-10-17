@@ -8,8 +8,6 @@ import Prelude
 import Data.Either (Either (..))
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
-import Effect.Ref (Ref)
-import Effect.Ref as Ref
 
 
 

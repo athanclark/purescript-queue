@@ -8,8 +8,6 @@ import Prelude
 import Data.Either (Either (..))
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
-import Effect.Ref (Ref)
-import Effect.Ref as Ref
 
 
 
@@ -19,8 +17,8 @@ newtype IOQueues input output = IOQueues
   }
 
 
-newIOQueues :: forall input output. Effect (IOQueues input output)
-newIOQueues = do
+new :: forall input output. Effect (IOQueues input output)
+new = do
   input <- readOnly <$> Queue.new
   output <- writeOnly <$> Queue.new
   pure (IOQueues {input,output})
