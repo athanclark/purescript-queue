@@ -1,42 +1,43 @@
 module IxQueue
   ( module Queue.Types
   , IxQueue (..)
-  , newIxQueue, putIxQueue, putManyIxQueue
-  , broadcastIxQueue, broadcastManyIxQueue
-  , broadcastExceptIxQueue, broadcastManyExceptIxQueue
-  , onIxQueue, onceIxQueue, drawIxQueue
-  , readBroadcastIxQueue, readIxQueue, takeBroadcastIxQueue, takeIxQueue
-  , delIxQueue, clearIxQueue, drainIxQueue
+  , new, put, putMany
+  , broadcast, broadcastMany
+  , broadcastExcept, broadcastManyExcept
+  , on, once, draw
+  , readBroadcast, read, takeBroadcast, take
+  , del, clear, drain
   ) where
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
 import Prelude
-import Data.StrMap (StrMap)
-import Data.StrMap as StrMap
+import Foreign.Object (Object)
+import Foreign.Object as Object
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Foldable (foldr)
+import Data.FoldableWithIndex (traverseWithIndex_)
 import Data.Traversable (class Traversable, traverse_)
-import Data.TraversableWithIndex (traverseWithIndex)
 import Data.Array as Array
 import Data.NonEmpty (NonEmpty (..))
-import Control.Monad.Aff (Aff, makeAff, nonCanceler)
-import Control.Monad.Eff (Eff, kind Effect)
-import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef, modifyRef)
+import Effect (Effect)
+import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Ref (Ref)
+import Effect.Ref as Ref
 
 
-newtype IxQueue (rw :: # SCOPE) (eff :: # Effect) a = IxQueue
-  { individual :: Ref (StrMap (Either (NonEmpty Array a) (Handler eff a)))
+newtype IxQueue (rw :: # SCOPE) a = IxQueue
+  { individual :: Ref (Object (Either (NonEmpty Array a) (Handler a)))
   , broadcast  :: Ref (Array a)
   }
 
 
-newIxQueue :: forall eff a. Eff (ref :: REF | eff) (IxQueue (read :: READ, write :: WRITE) (ref :: REF | eff) a)
-newIxQueue = do
-  individual <- newRef StrMap.empty
-  broadcast <- newRef []
-  pure (IxQueue {individual,broadcast})
+new :: forall a. Effect (IxQueue (read :: READ, write :: WRITE) a)
+new = do
+  individual <- Ref.new Object.empty
+  b <- Ref.new []
+  pure (IxQueue {individual,broadcast:b})
 
 
 instance queueScopeIxQueue :: QueueScope IxQueue where
@@ -45,22 +46,22 @@ instance queueScopeIxQueue :: QueueScope IxQueue where
   writeOnly    (IxQueue xs) = IxQueue xs
   allowReading (IxQueue xs) = IxQueue xs
 
-putIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> a -> Eff (ref :: REF | eff) Unit
-putIxQueue q k x = putManyIxQueue q k (NonEmpty x [])
+put :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> a -> Effect Unit
+put q k x = putMany q k (NonEmpty x [])
 
 
 -- | Application policy is such that the inputs are stored in the named handler's "pending" values, if a handler isn't registered.
 --   If so, apply the handler uniformly across the values, according to `t`'s `Traversable` instance.
-putManyIxQueue :: forall eff a t rw. Traversable t => IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> NonEmpty t a -> Eff (ref :: REF | eff) Unit
-putManyIxQueue (IxQueue {individual}) k xss = do
-  hs <- readRef individual
-  case StrMap.lookup k hs of
+putMany :: forall a t rw. Traversable t => IxQueue (write :: WRITE | rw) a -> String -> NonEmpty t a -> Effect Unit
+putMany (IxQueue {individual}) k xss = do
+  hs <- Ref.read individual
+  case Object.lookup k hs of
     Nothing ->
       -- store locally pending values
-      writeRef individual (StrMap.insert k (Left xsAsArray) hs)
+      Ref.write (Object.insert k (Left xsAsArray) hs) individual
     Just ePH -> case ePH of
       -- append locally pending values
-      Left pending -> writeRef individual (StrMap.insert k (Left (appendNonEmpty pending xsAsArray)) hs)
+      Left pending -> Ref.write (Object.insert k (Left (appendNonEmpty pending xsAsArray)) hs) individual
       -- suit handlers
       Right h -> traverse_ h xss
   where
@@ -70,38 +71,45 @@ putManyIxQueue (IxQueue {individual}) k xss = do
 
 
 
-broadcastIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> a -> Eff (ref :: REF | eff) Unit
-broadcastIxQueue q x = broadcastManyIxQueue q (NonEmpty x [])
+broadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> a -> Effect Unit
+broadcast q x = broadcastMany q (NonEmpty x [])
 
 
-broadcastManyIxQueue :: forall eff a t rw. Traversable t => IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> NonEmpty t a -> Eff (ref :: REF | eff) Unit
-broadcastManyIxQueue q xs = broadcastManyExceptIxQueue q [] xs
+broadcastMany :: forall a t rw. Traversable t => IxQueue (write :: WRITE | rw) a -> NonEmpty t a -> Effect Unit
+broadcastMany q xs = broadcastManyExcept q [] xs
 
 
-broadcastExceptIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array String -> a -> Eff (ref :: REF | eff) Unit
-broadcastExceptIxQueue q ex x = broadcastManyExceptIxQueue q ex (NonEmpty x [])
+broadcastExcept :: forall a rw. IxQueue (write :: WRITE | rw) a -> Array String -> a -> Effect Unit
+broadcastExcept q ex x = broadcastManyExcept q ex (NonEmpty x [])
 
 
 -- | Application policy is such that the inputs will be applied uniformly to all handlers, sorted by their keyed ordering, per input - directed by `t`'s `Traversable` instance.
 --   Values are stored globally iff. there are no handlers, and locally if there's already pending values.
-broadcastManyExceptIxQueue :: forall eff a t rw. Traversable t => IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Array String -> NonEmpty t a -> Eff (ref :: REF | eff) Unit
-broadcastManyExceptIxQueue (IxQueue {individual,broadcast}) excluding xss = do
-  hs <- readRef individual
+broadcastManyExcept :: forall a t rw
+                     . Traversable t
+                    => IxQueue (write :: WRITE | rw) a
+                    -> Array String
+                    -> NonEmpty t a -> Effect Unit
+broadcastManyExcept (IxQueue {individual,broadcast:b}) excluding xss = do
+  hs <- Ref.read individual
 
-  let hasHandler (Right _) = true
+  let hasHandler :: Either (NonEmpty Array a) (Handler a) -> Boolean
+      hasHandler (Right _) = true
       hasHandler _ = false
 
-  if StrMap.isEmpty (StrMap.filter hasHandler hs)
-    then modifyRef broadcast (\pending -> pending <> xsAsArray')
+  if Object.isEmpty (Object.filter hasHandler hs)
+    then void (Ref.modify (\pending -> pending <> xsAsArray') b)
     else
-      let go x = do
-            hs' <- readRef individual
-            let go' k ePH
+      let go :: a -> Effect Unit
+          go x = do
+            hs' <- Ref.read individual
+            let go' :: String -> Either (NonEmpty Array a) (Handler a) -> Effect Unit
+                go' k ePH
                   | k `Array.notElem` excluding = case ePH of
-                      Left pending -> writeRef individual (StrMap.insert k (Left (appendNonEmpty pending (NonEmpty x []))) hs')
+                      Left pending -> Ref.write (Object.insert k (Left (appendNonEmpty pending (NonEmpty x []))) hs') individual
                       Right h -> h x
                   | otherwise = pure unit
-            void (traverseWithIndex go' hs')
+            traverseWithIndex_ go' hs'
       in  traverse_ go xss
   where
     xsAsArray :: NonEmpty Array a
@@ -114,111 +122,111 @@ broadcastManyExceptIxQueue (IxQueue {individual,broadcast}) excluding xss = do
 
 -- | Application policy is such that the globally pending inputs will be extracted and applied to the handler, if they exist, and likewise to the locally pending inputs,
 --   before registering the handler under the name.
-onIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> (Handler (ref :: REF | eff) a) -> Eff (ref :: REF | eff) Unit
-onIxQueue (IxQueue {individual,broadcast}) k f = do
-  bs <- readRef broadcast
+on :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit
+on (IxQueue {individual,broadcast:b}) k f = do
+  bs <- Ref.read b
   -- consume pending global values
   unless (Array.null bs) $ do
-    writeRef broadcast []
+    Ref.write [] b
     traverse_ f bs
-  hs <- readRef individual
+  hs <- Ref.read individual
   -- consume pending local values
-  case StrMap.lookup k hs of
+  case Object.lookup k hs of
     Nothing -> pure unit
     Just ePH -> case ePH of
       Left pending -> traverse_ f pending
       Right _ -> pure unit
-  writeRef individual (StrMap.insert k (Right f) hs)
+  Ref.write (Object.insert k (Right f) hs) individual
 
 
-onceIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> (Handler (ref :: REF | eff) a) -> Eff (ref :: REF | eff) Unit
-onceIxQueue q@(IxQueue {broadcast,individual}) k f = do
-  bs <- readRef broadcast
+once :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit
+once q@(IxQueue {broadcast:b,individual}) k f = do
+  bs <- Ref.read b
   case Array.uncons bs of
     Just {head,tail} -> do
-      writeRef broadcast tail
+      Ref.write tail b
       f head
     Nothing -> do
-      hs <- readRef individual
-      case StrMap.lookup k hs of
+      hs <- Ref.read individual
+      case Object.lookup k hs of
         Just (Left (NonEmpty x xs)) -> do
           case Array.uncons xs of
             Nothing ->
-              writeRef individual (StrMap.delete k hs)
+              Ref.write (Object.delete k hs) individual
             Just {head,tail} ->
-              writeRef individual (StrMap.insert k (Left (NonEmpty head tail)) hs)
+              Ref.write (Object.insert k (Left (NonEmpty head tail)) hs) individual
           f x
         _ ->
           let f' x = do
-                writeRef individual (StrMap.delete k hs)
+                Ref.write (Object.delete k hs) individual
                 f x
-          in  writeRef individual (StrMap.insert k (Right f') hs)
+          in  Ref.write (Object.insert k (Right f') hs) individual
 
 
-drawIxQueue :: forall rw eff a. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Aff (ref :: REF | eff) a
-drawIxQueue q k = makeAff \resolve -> do
-  onceIxQueue q k (resolve <<< Right)
+draw :: forall rw a. IxQueue (read :: READ | rw) a -> String -> Aff a
+draw q k = makeAff \resolve -> do
+  once q k (resolve <<< Right)
   pure nonCanceler
 
 
-readIxQueue :: forall eff a rw. IxQueue rw (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) (Array a)
-readIxQueue (IxQueue {individual}) k = do
-  hs <- readRef individual
-  case StrMap.lookup k hs of
+read :: forall a rw. IxQueue rw a -> String -> Effect (Array a)
+read (IxQueue {individual}) k = do
+  hs <- Ref.read individual
+  case Object.lookup k hs of
     Nothing -> pure []
     Just ePH -> case ePH of
       Left (NonEmpty x xs) -> pure (Array.cons x xs)
       Right _ -> pure []
 
 
-readBroadcastIxQueue :: forall eff a rw. IxQueue rw (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
-readBroadcastIxQueue (IxQueue {broadcast}) = readRef broadcast
+readBroadcast :: forall a rw. IxQueue rw a -> Effect (Array a)
+readBroadcast (IxQueue {broadcast:b}) = Ref.read b
 
 
 -- | Removes locally pending inputs for a specific key
-takeIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) (Array a)
-takeIxQueue (IxQueue {individual}) k = do
-  hs <- readRef individual
-  case StrMap.lookup k hs of
+take :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Array a)
+take (IxQueue {individual}) k = do
+  hs <- Ref.read individual
+  case Object.lookup k hs of
     Nothing -> pure []
     Just ePH -> case ePH of
       Left (NonEmpty x xs) -> do
-        writeRef individual (StrMap.delete k hs)
+        Ref.write (Object.delete k hs) individual
         pure (Array.cons x xs)
       Right _ -> pure []
 
 
 -- | Removes only the globally pending inputs
-takeBroadcastIxQueue :: forall eff a rw. IxQueue (write :: WRITE | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) (Array a)
-takeBroadcastIxQueue (IxQueue {broadcast}) = do
-  xs <- readRef broadcast
-  writeRef broadcast []
+takeBroadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> Effect (Array a)
+takeBroadcast (IxQueue {broadcast:b}) = do
+  xs <- Ref.read b
+  Ref.write [] b
   pure xs
 
 
 -- | Unregisters a handler, returns whether one existed
-delIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) Boolean
-delIxQueue (IxQueue {individual}) k = do
-  hs <- readRef individual
-  case StrMap.lookup k hs of
+del :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Effect Boolean
+del (IxQueue {individual}) k = do
+  hs <- Ref.read individual
+  case Object.lookup k hs of
     Nothing -> pure false
     Just ePH -> case ePH of
       Left pending -> pure false
       Right _ -> do
-        writeRef individual (StrMap.delete k hs)
+        Ref.write (Object.delete k hs) individual
         pure true
 
 
 -- | Removes all handlers, but preserves pending data
-clearIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> Eff (ref :: REF | eff) Unit
-clearIxQueue q@(IxQueue{individual}) = do
-  hs <- readRef individual
-  traverse_ (\k -> unit <$ delIxQueue q k) (StrMap.keys hs)
+clear :: forall a rw. IxQueue (read :: READ | rw) a -> Effect Unit
+clear q@(IxQueue{individual}) = do
+  hs <- Ref.read individual
+  traverse_ (\k -> unit <$ del q k) (Object.keys hs)
 
 
 -- | Applies a nullary named handler, to remove any globally pending data
-drainIxQueue :: forall eff a rw. IxQueue (read :: READ | rw) (ref :: REF | eff) a -> String -> Eff (ref :: REF | eff) Unit
-drainIxQueue q k = onIxQueue q k \_ -> pure unit
+drain :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Effect Unit
+drain q k = on q k \_ -> pure unit
 
 
 

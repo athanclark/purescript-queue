@@ -11,6 +11,7 @@
     "purescript-console": "^4.1.0",
     "purescript-refs": "^4.1.0",
     "purescript-aff": "^5.0.2",
+    "purescript-foreign-object": "^1.0.0",
     "purescript-uuid": "^5.0.0"
   },
   "devDependencies": {

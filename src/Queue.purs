@@ -1,10 +1,10 @@
 module Queue
   ( module Queue.Types
   , Queue (..)
-  , newQueue
-  , putQueue, putManyQueue
-  , onQueue, onceQueue, drawQueue
-  , readQueue, takeQueue, delQueue, drainQueue
+  , new
+  , put, putMany
+  , on, once, draw
+  , read, take, del, drain
   ) where
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
@@ -19,9 +19,6 @@ import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
--- import Control.Monad.Aff (Aff, makeAff, nonCanceler)
--- import Control.Monad.Eff (Eff, kind Effect)
--- import Control.Monad.Eff.Ref (REF, Ref, newRef, readRef, writeRef)
 
 
 
@@ -29,8 +26,8 @@ import Effect.Ref as Ref
 newtype Queue (rw :: # SCOPE) a = Queue (Ref (Either (Array a) (Array (Handler a))))
 
 
-newQueue :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
-newQueue = Queue <$> Ref.new (Left [])
+new :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
+new = Queue <$> Ref.new (Left [])
 
 
 instance queueScopeQueue :: QueueScope Queue where
@@ -53,7 +50,7 @@ putMany (Queue queue) xss =
   for_ xss \x -> do
     ePH <- Ref.read queue
     case ePH of
-      Left pending -> Ref.write queue (Left (pending <> [x]))
+      Left pending -> Ref.write (Left (pending <> [x])) queue
       Right hs -> traverse_ (\f -> f x) hs
 
 
@@ -63,9 +60,9 @@ on (Queue queue) f = do
   case ePH of
     Left pending -> do
       traverse_ f pending
-      Ref.write queue (Right [f])
+      Ref.write (Right [f]) queue
     Right handlers ->
-      Ref.write queue (Right (handlers <> [f]))
+      Ref.write (Right (handlers <> [f])) queue
 
 
 -- | Treat this as the only handler, and on the next input, clear all handlers.
@@ -80,12 +77,12 @@ once q@(Queue queue) f' = do
     Left pending -> do
       case Array.uncons pending of
         Nothing ->
-          Ref.write queue (Right [f])
+          Ref.write (Right [f]) queue
         Just {head,tail} -> do
           f' head
-          Ref.write queue (Left tail)
+          Ref.write (Left tail) queue
     Right handlers ->
-      Ref.write queue (Right (handlers <> [f]))
+      Ref.write (Right (handlers <> [f])) queue
 
 
 draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
@@ -107,7 +104,7 @@ take (Queue queue) = do
   ePH <- Ref.read queue
   case ePH of
     Left pending -> do
-      Ref.rite queue (Left [])
+      Ref.write (Left []) queue
       pure pending
     Right _ -> pure []
 
@@ -118,7 +115,7 @@ del (Queue queue) = do
   ePH <- Ref.read queue
   case ePH of
     Left _ -> pure unit
-    Right _ -> Ref.write queue (Left [])
+    Right _ -> Ref.write (Left []) queue
 
 -- | Adds a listener that does nothing, and "drains" any pending messages.
 drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit

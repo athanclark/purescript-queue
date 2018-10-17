@@ -1,68 +1,70 @@
 module Queue.Aff where
 
-import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
-import Queue (Queue, onceQueue, onQueue, putQueue, newQueue)
+import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting, Handler)
+import Queue (Queue)
+import Queue as Queue
 
 import Prelude
 import Data.Either (Either (..))
-import Control.Monad.Aff (Aff, makeAff, nonCanceler)
-import Control.Monad.Eff (Eff, kind Effect)
-import Control.Monad.Eff.Ref (REF)
+import Effect (Effect)
+import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Ref (Ref)
+import Effect.Ref as Ref
 
 
 
-newtype IOQueues (eff :: # Effect) input output = IOQueues
-  { input :: Queue (read :: READ) eff input
-  , output :: Queue (write :: WRITE) eff output
+newtype IOQueues input output = IOQueues
+  { input :: Queue (read :: READ) input
+  , output :: Queue (write :: WRITE) output
   }
 
 
-newIOQueues :: forall eff input output. Eff (ref :: REF | eff) (IOQueues (ref :: REF | eff) input output)
-newIOQueues = do
-  input <- readOnly <$> newQueue
-  output <- writeOnly <$> newQueue
+new :: forall input output. Effect (IOQueues input output)
+new = do
+  input <- readOnly <$> Queue.new
+  output <- writeOnly <$> Queue.new
   pure (IOQueues {input,output})
 
 -- * Invoking
 
 -- | Invoke the queue in `Aff`
-callAsync :: forall eff input output
-           . IOQueues (ref :: REF | eff) input output
+callAsync :: forall input output
+           . IOQueues input output
           -> input
-          -> Aff (ref :: REF | eff) output
+          -> Aff output
 callAsync (IOQueues {input,output}) x =
   makeAff \resolve -> do
-    onceQueue (allowReading output) \y -> resolve (Right y)
-    putQueue (allowWriting input) x
+    Queue.once (allowReading output) \y -> resolve (Right y)
+    Queue.put (allowWriting input) x
     pure nonCanceler
 
 
 -- | Invoke the queue in `Eff`
-callAsyncEff :: forall eff input output
-              . IOQueues (ref :: REF | eff) input output
-             -> (output -> Eff (ref :: REF | eff) Unit)
+callAsyncEff :: forall input output
+              . IOQueues input output
+             -> Handler output
              -> input
-             -> Eff (ref :: REF | eff) Unit
+             -> Effect Unit
 callAsyncEff (IOQueues {input,output}) f x = do
-  onceQueue (allowReading output) f
-  putQueue (allowWriting input) x
+  Queue.once (allowReading output) f
+  Queue.put (allowWriting input) x
 
 
 -- * Binding
 
 -- | For binding the receiver
-registerSync :: forall eff input output
-              . IOQueues (ref :: REF | eff) input output
-             -> (input -> Eff (ref :: REF | eff) output)
-             -> Eff (ref :: REF | eff) Unit
+registerSync :: forall input output
+              . IOQueues input output
+             -> (input -> Effect output)
+             -> Effect Unit
 registerSync (IOQueues {input,output}) f =
-  onQueue input \x -> putQueue output =<< f x
+  Queue.on input \x -> Queue.put output =<< f x
 
 
 -- | Bind a receiver only once
-registerSyncOnce :: forall eff input output
-                  . IOQueues (ref :: REF | eff) input output
-                 -> (input -> Eff (ref :: REF | eff) output)
-                 -> Eff (ref :: REF | eff) Unit
+registerSyncOnce :: forall input output
+                  . IOQueues input output
+                 -> (input -> Effect output)
+                 -> Effect Unit
 registerSyncOnce (IOQueues {input,output}) f =
-  onceQueue input \x -> putQueue output =<< f x
+  Queue.once input \x -> Queue.put output =<< f x

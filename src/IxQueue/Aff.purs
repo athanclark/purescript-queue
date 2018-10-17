@@ -1,98 +1,98 @@
 module IxQueue.Aff
   ( IOQueues (..)
-  , newIOQueues
+  , new
   , IOQueueKey
-  , newIOQueueKey
+  , newKey
   , callAsync
   , callAsyncEff
   , registerSync
   , registerSyncOnce
   ) where
 
-import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting)
-import IxQueue (IxQueue, delIxQueue, onIxQueue, onceIxQueue, putIxQueue, newIxQueue)
+import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting, Handler)
+import IxQueue (IxQueue)
+import IxQueue as IxQueue
 
 import Prelude
 import Data.Either (Either (..))
-import Data.UUID (GENUUID, genUUID, UUID)
-import Control.Monad.Aff (Aff, makeAff, Canceler (..))
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (liftEff)
-import Control.Monad.Eff.Ref (REF)
+import Data.UUID (genUUID, UUID)
+import Effect (Effect)
+import Effect.Class (liftEffect)
+import Effect.Aff (Aff, makeAff, Canceler (..))
 
 
 
-newtype IOQueues eff input output = IOQueues
-  { input :: IxQueue (read :: READ) eff input
-  , output :: IxQueue (write :: WRITE) eff output
+newtype IOQueues input output = IOQueues
+  { input :: IxQueue (read :: READ) input
+  , output :: IxQueue (write :: WRITE) output
   }
 
 
-newIOQueues :: forall eff input output
-             . Eff (ref :: REF | eff) (IOQueues (ref :: REF | eff) input output)
-newIOQueues = do
-  input <- newIxQueue
-  output <- newIxQueue
+new:: forall input output
+    . Effect (IOQueues input output)
+new= do
+  input <- IxQueue.new
+  output <- IxQueue.new
   pure (IOQueues {input: readOnly input,output: writeOnly output})
 
 
 newtype IOQueueKey = IOQueueKey UUID
 
-newIOQueueKey :: forall eff. Eff (uuid :: GENUUID | eff) IOQueueKey
-newIOQueueKey = IOQueueKey <$> genUUID
+newKey :: Effect IOQueueKey
+newKey = IOQueueKey <$> genUUID
 
 
 -- * Invoking
 
 -- | Invoke the queue in `Aff`
-callAsync :: forall eff input output
+callAsync :: forall input output
            . IOQueueKey
-          -> IOQueues (ref :: REF | eff) input output
+          -> IOQueues input output
           -> input
-          -> Aff (ref :: REF | eff) output
+          -> Aff output
 callAsync (IOQueueKey k) (IOQueues {input,output}) x =
   makeAff \resolve -> do
-    onceIxQueue (allowReading output) (show k) \y ->
+    IxQueue.once (allowReading output) (show k) \y ->
       resolve (Right y)
-    putIxQueue (allowWriting input) (show k) x
+    IxQueue.put (allowWriting input) (show k) x
     pure $ Canceler \e ->
-      unit <$ liftEff (delIxQueue (allowReading output) (show k))
+      unit <$ liftEffect (IxQueue.del (allowReading output) (show k))
 
 
 -- | Invoke the queue in `Eff`
-callAsyncEff :: forall eff input output
+callAsyncEff :: forall input output
               . IOQueueKey
-             -> IOQueues (ref :: REF | eff) input output
-             -> (output -> Eff (ref :: REF | eff) Unit)
+             -> IOQueues input output
+             -> Handler output
              -> input
-             -> Eff (ref :: REF | eff) Unit
+             -> Effect Unit
 callAsyncEff (IOQueueKey k) (IOQueues {input,output}) f x = do
-  onceIxQueue (allowReading output) (show k) f
-  putIxQueue (allowWriting input) (show k) x
+  IxQueue.once (allowReading output) (show k) f
+  IxQueue.put (allowWriting input) (show k) x
 
 
 -- * Binding
 
 -- | For binding the receiver
-registerSync :: forall eff input output
-              . IOQueues (ref :: REF, uuid :: GENUUID | eff) input output
-             -> (input -> Eff (ref :: REF, uuid :: GENUUID | eff) output)
-             -> Eff (ref :: REF, uuid :: GENUUID | eff) IOQueueKey
+registerSync :: forall input output
+              . IOQueues input output
+             -> (input -> Effect output)
+             -> Effect IOQueueKey
 registerSync (IOQueues {input,output}) f = do
-  k'@(IOQueueKey k) <- newIOQueueKey
-  onIxQueue input (show k) \x ->
-    putIxQueue output (show k) =<< f x
+  k'@(IOQueueKey k) <- newKey
+  IxQueue.on input (show k) \x ->
+    IxQueue.put output (show k) =<< f x
   pure k'
 
 
 
 -- | Bind a receiver only once
-registerSyncOnce :: forall eff input output
-                  . IOQueues (ref :: REF, uuid :: GENUUID | eff) input output
-                 -> (input -> Eff (ref :: REF, uuid :: GENUUID | eff) output)
-                 -> Eff (ref :: REF, uuid :: GENUUID | eff) IOQueueKey
+registerSyncOnce :: forall input output
+                  . IOQueues input output
+                 -> (input -> Effect output)
+                 -> Effect IOQueueKey
 registerSyncOnce (IOQueues {input,output}) f = do
-  k'@(IOQueueKey k) <- newIOQueueKey
-  onceIxQueue input (show k) \x ->
-    putIxQueue output (show k) =<< f x
+  k'@(IOQueueKey k) <- newKey
+  IxQueue.once input (show k) \x ->
+    IxQueue.put output (show k) =<< f x
   pure k'
