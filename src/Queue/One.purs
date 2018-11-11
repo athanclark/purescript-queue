@@ -85,7 +85,7 @@ once q@(Queue queue) f' = do
               Just x -> do
                 xs <- Array.unsafeFreeze a
                 pure do
-                  f' x
+                  f x
                   Ref.write (Left xs) queue
       in  ST.run go
     Right _ ->
