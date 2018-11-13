@@ -18,10 +18,9 @@ import Foreign.Object.ST (poke, peek, delete) as Object
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Tuple (Tuple (..))
-import Data.Foldable (foldr)
 import Data.FoldableWithIndex (traverseWithIndex_)
-import Data.Traversable (class Traversable, traverse_)
-import Data.Array (head, null, uncons, notElem) as Array
+import Data.Traversable (traverse_)
+import Data.Array (head, null, notElem) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons) as ArrayNE
 import Data.Array.ST (push, pushAll, splice, thaw, unsafeFreeze, withArray) as Array
@@ -33,6 +32,7 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Partial.Unsafe (unsafePartial)
 
+type Individual a = Object (Either (NonEmptyArray a) (Handler a))
 
 newtype IxQueue (rw :: # SCOPE) a = IxQueue
   { individual :: Ref (Object (Either (NonEmptyArray a) (Handler a)))
@@ -71,7 +71,7 @@ putMany (IxQueue {individual}) k xss = do
     Nothing ->
       -- store locally pending values
       let obj = ST.run go
-          go :: forall r. ST r (Object _)
+          go :: forall r. ST r (Individual a)
           go = do
             o <- Object.thawST hs
             _ <- Object.poke k (Left xss) o
@@ -81,7 +81,7 @@ putMany (IxQueue {individual}) k xss = do
       -- append locally pending values
       Left pending ->
         let obj = ST.run go
-            go :: forall r. ST r (Object _)
+            go :: forall r. ST r (Individual a)
             go = do
               pending' <- Array.withArray (Array.pushAll (ArrayNE.toArray xss)) (ArrayNE.toArray pending)
               o <- Object.thawST hs
@@ -133,9 +133,9 @@ broadcastManyExcept (IxQueue {individual,broadcast:broadcast'}) excluding xss = 
                 go' k ePH =
                   when (k `Array.notElem` excluding) $ case ePH of
                     Left pending ->
-                      let obj = ST.run go
-                          go :: forall r. ST r (Object _)
-                          go = do
+                      let obj = ST.run go1
+                          go1 :: forall r. ST r (Individual a)
+                          go1 = do
                             pending' <- Array.withArray (Array.push x) (ArrayNE.toArray pending)
                             hs'' <- Object.thawST hs'
                             _ <- Object.poke k (Left (unsafeFromArray pending')) hs''
@@ -158,7 +158,7 @@ on (IxQueue {individual,broadcast:b}) k f = do
     traverse_ f bs
   hs <- Ref.read individual
   -- consume pending local values
-  let go :: forall r. ST r (Maybe (Tuple (Array a) (Object _)))
+  let go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
       go = do
         hs' <- Object.thawST hs
         mX <- Object.peek k hs'
@@ -202,32 +202,32 @@ once q@(IxQueue {broadcast:b,individual}) k f = do
                     action :: Effect Unit
                     action = case ArrayNE.fromArray xs of
                       Nothing ->
-                        let obj = ST.run go
-                            go :: forall r. ST r (Object _)
-                            go = do
-                              hs' <- Object.thawST hs
-                              _ <- Object.delete k hs'
-                              Object.freezeST hs'
+                        let obj = ST.run go1
+                            go1 :: forall r1. ST r1 (Individual a)
+                            go1 = do
+                              hs'' <- Object.thawST hs
+                              _ <- Object.delete k hs''
+                              Object.freezeST hs''
                         in  Ref.write obj individual
                       Just xs' ->
-                        let obj = ST.run go
-                            go :: forall r. ST r (Object _)
-                            go = do
-                              hs' <- Object.thawST hs
-                              _ <- Object.poke k (Left xs') hs'
-                              Object.freezeST hs'
+                        let obj = ST.run go1
+                            go1 :: forall r1. ST r1 (Individual a)
+                            go1 = do
+                              hs'' <- Object.thawST hs
+                              _ <- Object.poke k (Left xs') hs''
+                              Object.freezeST hs''
                         in  Ref.write obj individual
                 pure do
                   action
                   f x
               _ -> do
                 let f' x = do
-                      let obj = ST.run go
-                          go :: forall r. ST r (Object _)
-                          go = do
-                            hs' <- Object.thawST hs
-                            _ <- Object.delete k hs'
-                            Object.freezeST hs'
+                      let obj = ST.run go1
+                          go1 :: forall r1. ST r1 (Individual a)
+                          go1 = do
+                            hs'' <- Object.thawST hs
+                            _ <- Object.delete k hs''
+                            Object.freezeST hs''
                       Ref.write obj individual
                       f x
                 _ <- Object.poke k (Right f') hs'
@@ -281,7 +281,7 @@ take :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Array 
 take (IxQueue {individual}) k = do
   hs <- Ref.read individual
   let mNew = ST.run go
-      go :: forall r. ST r _
+      go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
       go = do
         o <- Object.thawST hs
         mX <- Object.peek k o
@@ -312,7 +312,7 @@ del :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Effect Boolean
 del (IxQueue {individual}) k = do
   hs <- Ref.read individual
   let mNew = ST.run go
-      go :: forall r. ST r (Maybe (Object _))
+      go :: forall r. ST r (Maybe (Individual a))
       go = do
         o <- Object.thawST hs
         mX <- Object.peek k o
