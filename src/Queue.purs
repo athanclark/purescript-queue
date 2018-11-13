@@ -12,7 +12,7 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Data.Traversable (traverse_)
+import Data.Traversable (traverse_, for_)
 import Data.Array (head) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (singleton, toArray) as Array
@@ -52,12 +52,13 @@ putMany :: forall rw a
         -> NonEmptyArray a
         -> Effect Unit
 putMany (Queue queue) xss = do
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending ->
-      let pending' = ST.run (Array.withArray (Array.pushAll (Array.toArray xss)) pending)
-      in  Ref.write (Left pending') queue
-    Right hs -> traverse_ (\x -> traverse_ (\f -> f x) hs) xss
+  for_ xss \x -> do
+    ePH <- Ref.read queue
+    case ePH of
+      Left pending ->
+        let pending' = ST.run (Array.withArray (Array.pushAll (Array.toArray xss)) pending)
+        in  Ref.write (Left pending') queue
+      Right hs -> traverse_ (\f -> f x) hs
 
 
 -- | Add a handler to the unindexed queue.
@@ -133,6 +134,7 @@ del (Queue queue) = do
   case ePH of
     Left _ -> pure unit
     Right _ -> Ref.write (Left []) queue
+
 
 -- | Adds a listener that does nothing, and "drains" any pending messages.
 drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit

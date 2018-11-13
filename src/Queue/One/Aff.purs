@@ -38,7 +38,7 @@ callAsync (IOQueues {input,output}) x =
     pure nonCanceler
 
 
--- | Invoke the queue in `Eff`
+-- | Invoke the queue in `Effect`
 callAsyncEff :: forall input output
               . IOQueues input output
              -> Handler output
