@@ -39,5 +39,5 @@ main = do
   test OneTest.putManyBeforeOnSync
   log "Queue.One.putMany after Queue.One.once at least once"
   test OneTest.putManyAfterOnceAtLeastOnce
-  -- log "Queue.One.putMany after Queue.One.once only once"
-  -- test OneTest.putManyAfterOnceOnlyOnce
+  log "Queue.One.putMany after Queue.One.once only once"
+  test OneTest.putManyAfterOnceOnlyOnce
