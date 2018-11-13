@@ -1,3 +1,8 @@
+-- | Un-indexed queues with a set of handlers - this is useful for sending messages to a set of recipients,
+-- | where removing them individually from the queue isn't necessary (but incremental additions are). This
+-- | could be useful in interfaces where the list of handlers strictly increases, then gets wiped all at
+-- | once if desired (i.e. a feed of social media posts).
+
 module Queue
   ( module Queue.Types
   , Queue (..)
@@ -6,6 +11,7 @@ module Queue
   , on, once, draw
   , read, take, del, drain
   ) where
+
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
@@ -23,8 +29,6 @@ import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
-
-
 
 
 newtype Queue (rw :: # SCOPE) a = Queue (Ref (Either (Array a) (Array (Handler a))))

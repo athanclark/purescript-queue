@@ -1,8 +1,13 @@
+-- | Queues with at most one handler - this is useful for sending messages to a single, solitary
+-- | handler (user interface component, websocket connection, what have you).
+
+
 module Queue.One
   ( module Queue.Types
   , Queue (..), new
   , put, putMany, on, once, draw, take, read, del, drain
   ) where
+
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
@@ -20,8 +25,6 @@ import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
-
-
 
 
 newtype Queue (rw :: # SCOPE) a =
