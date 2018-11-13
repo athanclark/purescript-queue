@@ -106,3 +106,30 @@ take2ndIdempotent xs onComplete = do
   ys1 <- One.take q
   ys2 <- One.take q
   onComplete (ys1 == ys2 && ys2 == [])
+
+
+delPendingIdentity :: forall a
+                    . Eq a
+                   => NonEmptyArray a
+                   -> (Boolean -> Effect Unit)
+                   -> Effect Unit
+delPendingIdentity xs onComplete = do
+  q <- One.new
+  One.drain q
+  One.del q
+  One.putMany q xs
+  ys <- One.read q
+  onComplete (ArrayNE.toArray xs == ys)
+
+
+drainConsumes :: forall a
+               . Eq a
+              => NonEmptyArray a
+              -> (Boolean -> Effect Unit)
+              -> Effect Unit
+drainConsumes xs onComplete = do
+  q <- One.new
+  One.drain q
+  One.putMany q xs
+  ys <- One.read q
+  onComplete ([] == ys)

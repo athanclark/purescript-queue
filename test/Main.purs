@@ -47,3 +47,7 @@ main = do
   test OneTest.takeIdentity
   log "Queue.One.take 2nd idempotent"
   test OneTest.take2ndIdempotent
+  log "Queue.One.del pending identity"
+  test OneTest.delPendingIdentity
+  log "Queue.One.drain consumes"
+  test OneTest.drainConsumes
