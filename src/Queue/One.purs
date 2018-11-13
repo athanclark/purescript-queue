@@ -9,11 +9,11 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
-import Data.Traversable (traverse_)
+import Data.Traversable (traverse_, for_)
 import Data.Array (head) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, toArray) as Array
-import Data.Array.ST (pushAll, splice, thaw, unsafeFreeze, withArray) as Array
+import Data.Array.NonEmpty (singleton, toArray, fromArray, head, tail) as ArrayNE
+import Data.Array.ST (pushAll, push, splice, thaw, unsafeFreeze, withArray) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
@@ -41,7 +41,7 @@ instance queueScopeQueueOne :: QueueScope Queue where
 
 -- | Supply a single input to the queue.
 put :: forall rw a. Queue (write :: WRITE | rw) a -> a -> Effect Unit
-put q x = putMany q (Array.singleton x)
+put q x = putMany q (ArrayNE.singleton x)
 
 
 -- | Supply many inputs in batch to the queue.
@@ -50,12 +50,13 @@ putMany:: forall rw a
        -> NonEmptyArray a
        -> Effect Unit
 putMany(Queue queue) xss = do
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending ->
-      let pending' = ST.run (Array.withArray (Array.pushAll (Array.toArray xss)) pending)
-      in  Ref.write (Left pending') queue
-    Right f -> traverse_ f xss
+  for_ xss \x -> do
+    ePH <- Ref.read queue
+    case ePH of
+      Left pending ->
+        let pending' = ST.run (Array.withArray (Array.push x) pending)
+        in  Ref.write (Left pending') queue
+      Right f -> f x
 
 
 -- | Assign the handler to the singleton queue.
@@ -78,19 +79,11 @@ once q@(Queue queue) f' = do
         f' x
   ePH <- Ref.read queue
   case ePH of
-    Left pending ->
-      let go :: forall r. ST r (Effect Unit)
-          go = do
-            a <- Array.thaw pending
-            mx <- Array.splice 0 1 [] a
-            case Array.head mx of
-              Nothing -> pure (Ref.write (Right f) queue)
-              Just x -> do
-                xs <- Array.unsafeFreeze a
-                pure do
-                  f x
-                  Ref.write (Left xs) queue
-      in  ST.run go
+    Left pending -> case ArrayNE.fromArray pending of
+      Nothing -> Ref.write (Right f) queue
+      Just xss -> do
+        f (ArrayNE.head xss)
+        Ref.write (Left (ArrayNE.tail xss)) queue
     Right _ ->
       Ref.write (Right f) queue
 
