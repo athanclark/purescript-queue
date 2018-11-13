@@ -20,7 +20,13 @@ import Data.Foldable (foldr)
 import Data.FoldableWithIndex (traverseWithIndex_)
 import Data.Traversable (class Traversable, traverse_)
 import Data.Array as Array
+import Data.Array (head) as Array
+import Data.Array.NonEmpty (NonEmptyArray)
+import Data.Array.NonEmpty (singleton, toArray) as Array
+import Data.Array.ST (push, pushAll, splice, thaw, unsafeFreeze, withArray) as Array
 import Data.NonEmpty (NonEmpty (..))
+import Control.Monad.ST (ST)
+import Control.Monad.ST (run) as ST
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
@@ -28,7 +34,7 @@ import Effect.Ref as Ref
 
 
 newtype IxQueue (rw :: # SCOPE) a = IxQueue
-  { individual :: Ref (Object (Either (NonEmpty Array a) (Handler a)))
+  { individual :: Ref (Object (Either (NonEmptyArray a) (Handler a)))
   , broadcast  :: Ref (Array a)
   }
 
@@ -52,48 +58,59 @@ put q k x = putMany q k (NonEmpty x [])
 
 -- | Application policy is such that the inputs are stored in the named handler's "pending" values, if a handler isn't registered.
 --   If so, apply the handler uniformly across the values, according to `t`'s `Traversable` instance.
-putMany :: forall a t rw. Traversable t => IxQueue (write :: WRITE | rw) a -> String -> NonEmpty t a -> Effect Unit
+putMany :: forall a rw
+         . IxQueue (write :: WRITE | rw) a
+        -> String
+        -> NonEmptyArray a
+        -> Effect Unit
 putMany (IxQueue {individual}) k xss = do
   hs <- Ref.read individual
   case Object.lookup k hs of
     Nothing ->
       -- store locally pending values
-      Ref.write (Object.insert k (Left xsAsArray) hs) individual
+      let obj = ST.run go
+          go = do
+            o <- Object.thawST hs
+            _ <- Object.poke k (Left (Array.toArray xss)) o
+            Object.freezeST o
+      in  Ref.write obj individual
     Just ePH -> case ePH of
       -- append locally pending values
-      Left pending -> Ref.write (Object.insert k (Left (appendNonEmpty pending xsAsArray)) hs) individual
+      Left pending ->
+        let obj = ST.run go
+            go = do
+              pending' <- Array.withArray (Array.pushAll (Array.toArray xss)) pending
+              o <- Object.thawST hs
+              _ <- Object.poke k (Left pending') o
+              Object.freezeST o
+        in  Ref.write obj individual
       -- suit handlers
       Right h -> traverse_ h xss
-  where
-    xsAsArray :: NonEmpty Array a
-    xsAsArray = case xss of
-      NonEmpty x xs -> NonEmpty x (foldr Array.cons [] xs)
 
 
 
 broadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> a -> Effect Unit
-broadcast q x = broadcastMany q (NonEmpty x [])
+broadcast q x = broadcastMany q (Array.singleton x)
 
 
-broadcastMany :: forall a t rw. Traversable t => IxQueue (write :: WRITE | rw) a -> NonEmpty t a -> Effect Unit
+broadcastMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> NonEmptyArray a -> Effect Unit
 broadcastMany q xs = broadcastManyExcept q [] xs
 
 
 broadcastExcept :: forall a rw. IxQueue (write :: WRITE | rw) a -> Array String -> a -> Effect Unit
-broadcastExcept q ex x = broadcastManyExcept q ex (NonEmpty x [])
+broadcastExcept q ex x = broadcastManyExcept q ex (Array.singleton x)
 
 
 -- | Application policy is such that the inputs will be applied uniformly to all handlers, sorted by their keyed ordering, per input - directed by `t`'s `Traversable` instance.
 --   Values are stored globally iff. there are no handlers, and locally if there's already pending values.
-broadcastManyExcept :: forall a t rw
-                     . Traversable t
-                    => IxQueue (write :: WRITE | rw) a
+broadcastManyExcept :: forall a rw
+                     . IxQueue (write :: WRITE | rw) a
                     -> Array String
-                    -> NonEmpty t a -> Effect Unit
+                    -> NonEmptyArray a -> Effect Unit
 broadcastManyExcept (IxQueue {individual,broadcast:b}) excluding xss = do
   hs <- Ref.read individual
 
-  let hasHandler :: Either (NonEmpty Array a) (Handler a) -> Boolean
+  let hasHandler :: Either (NonEmptyArray a) (Handler a) -> Boolean
       hasHandler (Right _) = true
       hasHandler _ = false
 
@@ -103,12 +120,11 @@ broadcastManyExcept (IxQueue {individual,broadcast:b}) excluding xss = do
       let go :: a -> Effect Unit
           go x = do
             hs' <- Ref.read individual
-            let go' :: String -> Either (NonEmpty Array a) (Handler a) -> Effect Unit
-                go' k ePH
-                  | k `Array.notElem` excluding = case ePH of
-                      Left pending -> Ref.write (Object.insert k (Left (appendNonEmpty pending (NonEmpty x []))) hs') individual
-                      Right h -> h x
-                  | otherwise = pure unit
+            let go' :: String -> Either (NonEmptyArray a) (Handler a) -> Effect Unit
+                go' k ePH =
+                  when (k `Array.notElem` excluding) $ case ePH of
+                    Left pending -> Ref.write (Object.insert k (Left (appendNonEmpty pending (NonEmpty x []))) hs') individual
+                    Right h -> h x
             traverseWithIndex_ go' hs'
       in  traverse_ go xss
   where
