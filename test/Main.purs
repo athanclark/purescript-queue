@@ -41,3 +41,9 @@ main = do
   test OneTest.putManyAfterOnceAtLeastOnce
   log "Queue.One.putMany after Queue.One.once only once"
   test OneTest.putManyAfterOnceOnlyOnce
+  log "Queue.One.read idempotent"
+  test OneTest.readIdempotent
+  log "Queue.One.take identity"
+  test OneTest.takeIdentity
+  log "Queue.One.take 2nd idempotent"
+  test OneTest.take2ndIdempotent

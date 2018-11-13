@@ -67,3 +67,42 @@ putManyAfterOnceOnlyOnce xs onComplete = do
   void $ setTimeout 100 do
     vs <- Ref.read valuesObtained
     onComplete (vs == [ArrayNE.head xs])
+
+
+readIdempotent :: forall a
+                . Eq a
+               => NonEmptyArray a
+               -> (Boolean -> Effect Unit)
+               -> Effect Unit
+readIdempotent xs onComplete = do
+  q <- One.new
+  One.putMany q xs
+  r1 <- One.read q
+  r2 <- One.read q
+  onComplete (r1 == r2)
+
+
+takeIdentity :: forall a
+              . Eq a
+             => NonEmptyArray a
+             -> (Boolean -> Effect Unit)
+             -> Effect Unit
+takeIdentity xs onComplete = do
+  q <- One.new
+  One.putMany q xs
+  ys <- One.take q
+  onComplete (ArrayNE.toArray xs == ys)
+
+
+take2ndIdempotent :: forall a
+                   . Eq a
+                  => NonEmptyArray a
+                  -> (Boolean -> Effect Unit)
+                  -> Effect Unit
+take2ndIdempotent xs onComplete = do
+  q <- One.new
+  One.putMany q xs
+  _ <- One.take q
+  ys1 <- One.take q
+  ys2 <- One.take q
+  onComplete (ys1 == ys2 && ys2 == [])
