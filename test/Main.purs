@@ -1,29 +1,39 @@
 module Test.Main where
 
-import Queue.Aff (callAsync, registerSync, newIOQueues)
+import Test.Main.Queue.One as OneTest
+import Test.QuickCheck (arbitrary)
+import Test.QuickCheck.Gen as QC
 
 import Prelude
-import Data.Either (Either (..))
-import Control.Monad.Aff (runAff_)
-import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Console (CONSOLE, log, logShow, errorShow)
+import Data.Enum (succ)
+import Data.Maybe (Maybe (Just))
+import Data.Traversable (traverse_)
+import Data.Array.NonEmpty (NonEmptyArray)
+import Effect (Effect)
+import Effect.Console (log, warn)
+import Effect.Ref as Ref
+import Partial.Unsafe (unsafePartial)
 
-main :: Eff _ Unit
+
+test :: (forall a. Eq a => NonEmptyArray a -> (Boolean -> Effect Unit) -> Effect Unit)
+     -> Effect Unit
+test go = do
+  testCases <- QC.randomSample' 100 (arbitrary :: QC.Gen (NonEmptyArray Int))
+  successes <- Ref.new 0
+  let report :: Boolean -> Effect Unit
+      report success
+        | success = do
+          let inc :: Int -> Int
+              inc x = unsafePartial $ case succ x of
+                Just y -> y
+          new <- Ref.modify inc successes
+          if new == 100 then log "success!" else pure unit
+        | otherwise = warn "failure!"
+  traverse_ (\testCase -> go testCase report) testCases
+
+main :: Effect Unit
 main = do
-  io <- newIOQueues
-
-  registerSync io $ \x -> do
-    log $ "Incrementing: " <> show x
-    let r = x + 1
-    log $ "Result: " <> show r
-    pure r
-
-  let call = callAsync io
-      resolve eX = case eX of
-        Left e -> errorShow e
-        Right x -> logShow x
-
-  runAff_ resolve $ do
-    a <- call 1
-    b <- call 10
-    void $ call (a + b)
+  log "Queue.One.putMany after Queue.One.on"
+  test OneTest.putManyAfterOnSync
+  log "Queue.One.putMany before Queue.One.on"
+  test OneTest.putManyBeforeOnSync
