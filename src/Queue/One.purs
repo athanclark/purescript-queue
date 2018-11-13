@@ -6,7 +6,7 @@ module Queue.One
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
-import Prelude
+import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_)
@@ -19,7 +19,7 @@ import Control.Monad.ST (run) as ST
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
-import Effect.Ref as Ref
+import Effect.Ref (read, write, new) as Ref
 
 
 
@@ -39,10 +39,12 @@ instance queueScopeQueueOne :: QueueScope Queue where
   allowReading (Queue q) = Queue q
 
 
+-- | Supply a single input to the queue.
 put :: forall rw a. Queue (write :: WRITE | rw) a -> a -> Effect Unit
 put q x = putMany q (Array.singleton x)
 
 
+-- | Supply many inputs in batch to the queue.
 putMany:: forall rw a
         . Queue (write :: WRITE | rw) a
        -> NonEmptyArray a
@@ -56,6 +58,7 @@ putMany(Queue queue) xss = do
     Right f -> traverse_ f xss
 
 
+-- | Assign the handler to the singleton queue.
 on :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
 on (Queue queue) f = do
   ePH <- Ref.read queue
@@ -67,7 +70,7 @@ on (Queue queue) f = do
       Ref.write (Right f) queue
 
 
--- | Treat this as the only handler, and on the next input, clear all handlers.
+-- | Run the handler only once for the next input before unassigning itself.
 once :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
 once q@(Queue queue) f' = do
   let f x = do
@@ -92,12 +95,14 @@ once q@(Queue queue) f' = do
       Ref.write (Right f) queue
 
 
+-- | Pull a single asynchronous value out of a queue.
 draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
 draw q = makeAff \resolve -> do
   once q (resolve <<< Right)
   pure nonCanceler
 
 
+-- | Read all pending values (if any), without removing them from the queue.
 read :: forall rw a. Queue rw a -> Effect (Array a)
 read (Queue queue) = do
   ePH <- Ref.read queue
@@ -106,6 +111,7 @@ read (Queue queue) = do
     Right _ -> pure []
 
 
+-- | Take all pending values (if any) from the queue.
 take :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Array a)
 take (Queue queue) = do
   ePH <- Ref.read queue
@@ -125,6 +131,6 @@ del (Queue queue) = do
     Right _ -> Ref.write (Left []) queue
 
 
-
+-- | Adds a listener that does nothing, and "drains" any pending messages.
 drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
 drain q = on q \_ -> pure unit

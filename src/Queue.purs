@@ -9,7 +9,7 @@ module Queue
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
-import Prelude
+import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_)
@@ -22,7 +22,7 @@ import Control.Monad.ST (run) as ST
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 import Effect.Ref (Ref)
-import Effect.Ref as Ref
+import Effect.Ref (read, write, new) as Ref
 
 
 
@@ -41,10 +41,12 @@ instance queueScopeQueue :: QueueScope Queue where
   allowReading (Queue q) = Queue q
 
 
+-- | Supply a single input to the queue.
 put :: forall rw a. Queue (write :: WRITE | rw) a -> a -> Effect Unit
 put q x = putMany q (Array.singleton x)
 
 
+-- | Supply many inputs in batch to the queue.
 putMany :: forall rw a
          . Queue (write :: WRITE | rw) a
         -> NonEmptyArray a
@@ -58,6 +60,7 @@ putMany (Queue queue) xss = do
     Right hs -> traverse_ (\x -> traverse_ (\f -> f x) hs) xss
 
 
+-- | Add a handler to the unindexed queue.
 on :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
 on (Queue queue) f = do
   ePH <- Ref.read queue
@@ -96,12 +99,14 @@ once q@(Queue queue) f' = do
       in  Ref.write (Right handlers') queue
 
 
+-- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well).
 draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
 draw q = makeAff \resolve -> do
   once q (resolve <<< Right)
   pure nonCanceler
 
 
+-- | Read all pending values (if any), without removing them from the queue.
 read :: forall rw a. Queue rw a -> Effect (Array a)
 read (Queue queue) = do
   ePH <- Ref.read queue
@@ -110,6 +115,7 @@ read (Queue queue) = do
     Right _ -> pure []
 
 
+-- | Take all pending values (if any) from the queue.
 take :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Array a)
 take (Queue queue) = do
   ePH <- Ref.read queue
