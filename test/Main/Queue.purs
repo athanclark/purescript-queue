@@ -2,13 +2,16 @@ module Test.Main.Queue where
 
 import Prelude
 import Queue as Q
+import Data.Maybe (Maybe (..))
 import Data.Array as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as ArrayNE
 import Effect (Effect)
+import Effect.Random (randomInt)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Timer (setTimeout)
+import Partial.Unsafe (unsafePartial)
 
 
 putManyAfterOnSync :: forall a
@@ -23,6 +26,32 @@ putManyAfterOnSync xs onComplete = do
     newXs <- Ref.modify (\ys -> ys `Array.snoc` x) obtained
     if Array.length newXs == ArrayNE.length xs
        then onComplete (newXs == ArrayNE.toArray xs)
+       else pure unit
+  Q.putMany q xs
+
+
+putManyBroadcastsAfterOnSync :: forall a
+                              . Eq a
+                             => NonEmptyArray a
+                             -> (Boolean -> Effect Unit)
+                             -> Effect Unit
+putManyBroadcastsAfterOnSync xs onComplete = do
+  q <- Q.new
+  n <- randomInt 1 10
+  (obtained :: Ref (Array (Array a))) <- Ref.new (Array.replicate n [])
+  let replicateM :: forall m. Monad m => Int -> (Int -> m Unit) -> m Unit
+      replicateM n' x
+        | n' == 1 = x n'
+        | otherwise = do
+          x n'
+          replicateM (n' - 1) x
+  replicateM n $ \i -> Q.on q $ \x -> do
+    let go' zs = zs `Array.snoc` x
+        go ys = unsafePartial $ case Array.modifyAt (i - 1) go' ys of
+                  Just ys' -> ys'
+    newXs <- Ref.modify go obtained
+    if Array.all (\x -> Array.length x == ArrayNE.length xs) newXs
+       then onComplete (Array.all (\z -> z == ArrayNE.toArray xs) newXs)
        else pure unit
   Q.putMany q xs
 

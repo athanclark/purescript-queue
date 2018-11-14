@@ -72,6 +72,8 @@ main =
         liftEffect $ log "Queue:"
         logSub "Queue.putMany after Queue.One.on"
         test QTest.putManyAfterOnSync
+        logSub "Queue.putMany after many Queue.One.on"
+        test QTest.putManyBroadcastsAfterOnSync
         logSub "Queue.putMany before Queue.One.on"
         test QTest.putManyBeforeOnSync
         logSub "Queue.putMany after Queue.One.once at least once"
