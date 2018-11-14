@@ -2,6 +2,7 @@ module Test.Main where
 
 import Test.Main.Queue.One as OneTest
 import Test.Main.Queue as QTest
+import Test.Main.IxQueue as IxQTest
 import Test.QuickCheck (arbitrary)
 import Test.QuickCheck.Gen as QC
 
@@ -44,7 +45,9 @@ test go = makeAff \resolve -> do
 main :: Effect Unit
 main =
   let resolve eX = case eX of
-        Left e -> throwException e
+        Left e -> do
+          warn (show e)
+          throwException e
         Right _ -> pure unit
   in  runAff_ resolve do
         let logSub s = liftEffect $ log $ " - " <> s
@@ -70,15 +73,15 @@ main =
         test OneTest.drainConsumes
 
         liftEffect $ log "Queue:"
-        logSub "Queue.putMany after Queue.One.on"
+        logSub "Queue.putMany after Queue.on"
         test QTest.putManyAfterOnSync
-        logSub "Queue.putMany after many Queue.One.on"
+        logSub "Queue.putMany after many Queue.on"
         test QTest.putManyBroadcastsAfterOnSync
-        logSub "Queue.putMany before Queue.One.on"
+        logSub "Queue.putMany before Queue.on"
         test QTest.putManyBeforeOnSync
-        logSub "Queue.putMany after Queue.One.once at least once"
+        logSub "Queue.putMany after Queue.once at least once"
         test QTest.putManyAfterOnceAtLeastOnce
-        logSub "Queue.putMany after Queue.One.once only once"
+        logSub "Queue.putMany after Queue.once only once"
         test QTest.putManyAfterOnceOnlyOnce
         logSub "Queue.read idempotent"
         test QTest.readIdempotent
@@ -90,3 +93,9 @@ main =
         test QTest.delPendingIdentity
         logSub "Queue.drain consumes"
         test QTest.drainConsumes
+
+        liftEffect $ log "IxQueue:"
+        logSub "IxQueue.putMany after IxQueue.on"
+        test IxQTest.putManyAfterOnSync
+        logSub "IxQueue.putMany after many IxQueue.on"
+        test IxQTest.putManyBroadcastsAfterOnSync

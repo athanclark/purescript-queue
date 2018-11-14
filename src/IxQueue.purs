@@ -13,11 +13,12 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
 import Prelude
 import Foreign.Object (Object)
-import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup) as Object
+import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup, insert) as Object
 import Foreign.Object.ST (poke, peek, delete) as Object
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Tuple (Tuple (..))
+import Data.Traversable (for_)
 import Data.FoldableWithIndex (traverseWithIndex_)
 import Data.Traversable (traverse_)
 import Data.Array (head, null, notElem) as Array
@@ -65,31 +66,32 @@ putMany :: forall a rw
         -> String
         -> NonEmptyArray a
         -> Effect Unit
-putMany (IxQueue {individual}) k xss = do
-  hs <- Ref.read individual
-  case Object.lookup k hs of
-    Nothing ->
-      -- store locally pending values
-      let obj = ST.run go
-          go :: forall r. ST r (Individual a)
-          go = do
-            o <- Object.thawST hs
-            _ <- Object.poke k (Left xss) o
-            Object.freezeST o
-      in  Ref.write obj individual
-    Just ePH -> case ePH of
-      -- append locally pending values
-      Left pending ->
+putMany (IxQueue {individual}) k xss =
+  for_ xss \x -> do
+    hs <- Ref.read individual
+    case Object.lookup k hs of
+      Nothing ->
+        -- store locally pending values
         let obj = ST.run go
             go :: forall r. ST r (Individual a)
             go = do
-              pending' <- Array.withArray (Array.pushAll (ArrayNE.toArray xss)) (ArrayNE.toArray pending)
               o <- Object.thawST hs
-              _ <- Object.poke k (Left (unsafeFromArray pending')) o
-              Object.freezeST o
+              o' <- Object.poke k (Left (ArrayNE.singleton x)) o
+              Object.freezeST o'
         in  Ref.write obj individual
-      -- suit handlers
-      Right h -> traverse_ h xss
+      Just ePH -> case ePH of
+        -- append locally pending values
+        Left pending ->
+          let obj = ST.run go
+              go :: forall r. ST r (Individual a)
+              go = do
+                pending' <- Array.withArray (Array.push x) (ArrayNE.toArray pending)
+                o <- Object.thawST hs
+                o' <- Object.poke k (Left (unsafeFromArray pending')) o
+                Object.freezeST o'
+          in  Ref.write obj individual
+        -- suit handlers
+        Right h -> h x
 
 
 
@@ -157,26 +159,12 @@ on (IxQueue {individual,broadcast:b}) k f = do
     Ref.write [] b
     traverse_ f bs
   hs <- Ref.read individual
-  -- consume pending local values
-  let go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
-      go = do
-        hs' <- Object.thawST hs
-        mX <- Object.peek k hs'
-        case mX of
-          Nothing -> pure Nothing
-          Just ePH -> do
-            let p = case ePH of
-                  Left pending -> ArrayNE.toArray pending
-                  Right _ -> []
-            _ <- Object.poke k (Right f) hs'
-            o <- Object.freezeST hs'
-            pure (Just (Tuple p o))
-      mNew = ST.run go
-  case mNew of
+  Ref.write (Object.insert k (Right f) hs) individual
+  case Object.lookup k hs of
     Nothing -> pure unit
-    Just (Tuple pending obj) -> do
-      Ref.write obj individual
-      traverse_ f pending
+    Just ePH -> case ePH of
+      Left pending -> traverse_ f pending
+      Right _ -> pure unit
 
 
 once :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit

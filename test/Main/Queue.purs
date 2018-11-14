@@ -72,6 +72,33 @@ putManyBeforeOnSync xs onComplete = do
        else pure unit
 
 
+-- | Doesn't work because the first handler is in a race condition with adding another.
+putManyBroadcastsBeforeOnSync :: forall a
+                              . Eq a
+                             => NonEmptyArray a
+                             -> (Boolean -> Effect Unit)
+                             -> Effect Unit
+putManyBroadcastsBeforeOnSync xs onComplete = do
+  q <- Q.new
+  n <- randomInt 1 10
+  (obtained :: Ref (Array (Array a))) <- Ref.new (Array.replicate n [])
+  Q.putMany q xs
+  let replicateM :: forall m. Monad m => Int -> (Int -> m Unit) -> m Unit
+      replicateM n' x
+        | n' == 1 = x n'
+        | otherwise = do
+          x n'
+          replicateM (n' - 1) x
+  replicateM n $ \i -> Q.on q $ \x -> do
+    let go' zs = zs `Array.snoc` x
+        go ys = unsafePartial $ case Array.modifyAt (i - 1) go' ys of
+                  Just ys' -> ys'
+    newXs <- Ref.modify go obtained
+    if Array.all (\x -> Array.length x == ArrayNE.length xs) newXs
+       then onComplete (Array.all (\z -> z == ArrayNE.toArray xs) newXs)
+       else pure unit
+
+
 putManyAfterOnceAtLeastOnce :: forall a
                              . Eq a
                             => NonEmptyArray a
