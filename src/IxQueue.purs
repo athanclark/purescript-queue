@@ -159,12 +159,31 @@ on (IxQueue {individual,broadcast:b}) k f = do
     Ref.write [] b
     traverse_ f bs
   hs <- Ref.read individual
-  Ref.write (Object.insert k (Right f) hs) individual
-  case Object.lookup k hs of
-    Nothing -> pure unit
-    Just ePH -> case ePH of
-      Left pending -> traverse_ f pending
-      Right _ -> pure unit
+  -- Ref.write (Object.insert k (Right f) hs) individual
+  -- case Object.lookup k hs of
+  --   Nothing -> pure unit
+  --   Just ePH -> case ePH of
+  --     Left pending -> traverse_ f pending
+  --     Right _ -> pure unit
+  -- consume pending local values
+  let go :: forall r. ST r (Tuple (Array a) (Individual a))
+      go = do
+        hs' <- Object.thawST hs
+        mX <- Object.peek k hs'
+        hs'' <- Object.poke k (Right f) hs'
+        o <- Object.freezeST hs''
+        case mX of
+          Nothing -> pure (Tuple [] o) -- pure Nothing
+          Just ePH -> do
+            let p = case ePH of
+                  Left pending -> ArrayNE.toArray pending
+                  Right _ -> []
+            pure (Tuple p o)
+      mNew = ST.run go
+  case mNew of
+    Tuple pending obj -> do
+      Ref.write obj individual
+      traverse_ f pending
 
 
 once :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit
