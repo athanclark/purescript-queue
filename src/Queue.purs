@@ -60,7 +60,7 @@ putMany (Queue queue) xss = do
     ePH <- Ref.read queue
     case ePH of
       Left pending ->
-        let pending' = ST.run (Array.withArray (Array.pushAll (Array.toArray xss)) pending)
+        let pending' = ST.run (Array.withArray (Array.push x) pending)
         in  Ref.write (Left pending') queue
       Right hs -> traverse_ (\f -> f x) hs
 

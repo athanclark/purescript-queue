@@ -1,6 +1,7 @@
 module Test.Main where
 
 import Test.Main.Queue.One as OneTest
+import Test.Main.Queue as QTest
 import Test.QuickCheck (arbitrary)
 import Test.QuickCheck.Gen as QC
 
@@ -33,7 +34,7 @@ test go = makeAff \resolve -> do
           new <- Ref.modify inc successes
           if new == 100
             then do
-              log "success!"
+              log "   success!"
               resolve (Right unit)
             else pure unit
         | otherwise = resolve $ Left $ error "failure!"
@@ -46,21 +47,44 @@ main =
         Left e -> throwException e
         Right _ -> pure unit
   in  runAff_ resolve do
-        liftEffect $ log "Queue.One.putMany after Queue.One.on"
+        let logSub s = liftEffect $ log $ " - " <> s
+
+        liftEffect $ log "Queue.One:"
+        logSub "Queue.One.putMany after Queue.One.on"
         test OneTest.putManyAfterOnSync
-        liftEffect $ log "Queue.One.putMany before Queue.One.on"
+        logSub "Queue.One.putMany before Queue.One.on"
         test OneTest.putManyBeforeOnSync
-        liftEffect $ log "Queue.One.putMany after Queue.One.once at least once"
+        logSub "Queue.One.putMany after Queue.One.once at least once"
         test OneTest.putManyAfterOnceAtLeastOnce
-        liftEffect $ log "Queue.One.putMany after Queue.One.once only once"
+        logSub "Queue.One.putMany after Queue.One.once only once"
         test OneTest.putManyAfterOnceOnlyOnce
-        liftEffect $ log "Queue.One.read idempotent"
+        logSub "Queue.One.read idempotent"
         test OneTest.readIdempotent
-        liftEffect $ log "Queue.One.take identity"
+        logSub "Queue.One.take identity"
         test OneTest.takeIdentity
-        liftEffect $ log "Queue.One.take 2nd idempotent"
+        logSub "Queue.One.take 2nd idempotent"
         test OneTest.take2ndIdempotent
-        liftEffect $ log "Queue.One.del pending identity"
+        logSub "Queue.One.del pending identity"
         test OneTest.delPendingIdentity
-        liftEffect $ log "Queue.One.drain consumes"
+        logSub "Queue.One.drain consumes"
         test OneTest.drainConsumes
+
+        liftEffect $ log "Queue:"
+        logSub "Queue.putMany after Queue.One.on"
+        test QTest.putManyAfterOnSync
+        logSub "Queue.putMany before Queue.One.on"
+        test QTest.putManyBeforeOnSync
+        logSub "Queue.putMany after Queue.One.once at least once"
+        test QTest.putManyAfterOnceAtLeastOnce
+        logSub "Queue.putMany after Queue.One.once only once"
+        test QTest.putManyAfterOnceOnlyOnce
+        logSub "Queue.read idempotent"
+        test QTest.readIdempotent
+        logSub "Queue.take identity"
+        test QTest.takeIdentity
+        logSub "Queue.take 2nd idempotent"
+        test QTest.take2ndIdempotent
+        logSub "Queue.del pending identity"
+        test QTest.delPendingIdentity
+        logSub "Queue.drain consumes"
+        test QTest.drainConsumes
