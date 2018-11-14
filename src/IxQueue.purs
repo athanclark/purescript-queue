@@ -1,3 +1,8 @@
+-- | Queues with an indexed mapping of handlers - this is useful for sending messages to a set of recipients,
+-- | where removing them individually from the queue at runtime is necessary. This
+-- | could be useful in interfaces where the set of listening handlers is unknown and dynamic, mimicking
+-- | global access to updated values.
+
 module IxQueue
   ( module Queue.Types
   , IxQueue (..)
@@ -149,8 +154,8 @@ broadcastManyExcept (IxQueue {individual,broadcast:broadcast'}) excluding xss = 
 
 
 -- | Application policy is such that the globally pending inputs will be extracted and applied
---   to the handler, if they exist, and likewise to the locally pending inputs,
---   before registering the handler under the name.
+--   to the handler, if they exist, and likewise to the locally pending inputs, after registering
+--   the handler.
 on :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit
 on (IxQueue {individual,broadcast:b}) k f = do
   bs <- Ref.read b
@@ -179,6 +184,8 @@ on (IxQueue {individual,broadcast:b}) k f = do
       traverse_ f pending
 
 
+-- | Apply a handler to a specific index that deletes itself after being run, via broadcast or
+--   targeted application.
 once :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Handler a -> Effect Unit
 once q@(IxQueue {broadcast:b,individual}) k f = do
   bs <- Ref.read b
@@ -235,33 +242,15 @@ once q@(IxQueue {broadcast:b,individual}) k f = do
                 pure (Ref.write obj individual)
   ST.run go
 
-  -- case Array.uncons bs of
-  --   Just {head,tail} -> do
-  --     Ref.write tail b
-  --     f head
-  --   Nothing -> do
-  --     hs <- Ref.read individual
-  --     case Object.lookup k hs of
-  --       Just (Left (NonEmpty x xs)) -> do
-  --         case Array.uncons xs of
-  --           Nothing ->
-  --             Ref.write (Object.delete k hs) individual
-  --           Just {head,tail} ->
-  --             Ref.write (Object.insert k (Left (NonEmpty head tail)) hs) individual
-  --         f x
-  --       _ ->
-  --         let f' x = do
-  --               Ref.write (Object.delete k hs) individual
-  --               f x
-  --         in  Ref.write (Object.insert k (Right f') hs) individual
 
-
+-- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well).
 draw :: forall rw a. IxQueue (read :: READ | rw) a -> String -> Aff a
 draw q k = makeAff \resolve -> do
   once q k (resolve <<< Right)
   pure nonCanceler
 
 
+-- | Read all pending values (if any) for a specific index, without removing them from the queue.
 read :: forall a rw. IxQueue rw a -> String -> Effect (Array a)
 read (IxQueue {individual}) k = do
   hs <- Ref.read individual
@@ -272,6 +261,7 @@ read (IxQueue {individual}) k = do
       Right _ -> pure []
 
 
+-- | Read only broadcast pending values (if any), without removing them from the queue.
 readBroadcast :: forall a rw. IxQueue rw a -> Effect (Array a)
 readBroadcast (IxQueue {broadcast:b}) = Ref.read b
 
