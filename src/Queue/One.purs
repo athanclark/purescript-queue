@@ -15,11 +15,9 @@ import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
-import Data.Array (head) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, toArray, fromArray, head, tail) as ArrayNE
-import Data.Array.ST (pushAll, push, splice, thaw, unsafeFreeze, withArray) as Array
-import Control.Monad.ST (ST)
+import Data.Array.NonEmpty (singleton, fromArray, head, tail) as ArrayNE
+import Data.Array.ST (push, withArray) as Array
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)

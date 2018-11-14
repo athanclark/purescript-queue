@@ -18,14 +18,13 @@ import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
 import Prelude
 import Foreign.Object (Object)
-import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup, insert) as Object
+import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup) as Object
 import Foreign.Object.ST (poke, peek, delete) as Object
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Tuple (Tuple (..))
-import Data.Traversable (for_)
+import Data.Traversable (for_, traverse_)
 import Data.FoldableWithIndex (traverseWithIndex_)
-import Data.Traversable (traverse_)
 import Data.Array (head, null, notElem) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons) as ArrayNE

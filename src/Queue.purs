@@ -21,8 +21,8 @@ import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
 import Data.Array (head) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, toArray) as Array
-import Data.Array.ST (push, pushAll, splice, thaw, unsafeFreeze, withArray) as Array
+import Data.Array.NonEmpty (singleton) as Array
+import Data.Array.ST (push, splice, thaw, unsafeFreeze, withArray) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
