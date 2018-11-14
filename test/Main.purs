@@ -99,3 +99,23 @@ main =
         test IxQTest.putManyAfterOnSync
         logSub "IxQueue.putMany after many IxQueue.on"
         test IxQTest.putManyBroadcastsAfterOnSync
+        logSub "IxQueue.putMany before IxQueue.on"
+        test IxQTest.putManyBeforeOnSync
+        logSub "IxQueue.putMany after IxQueue.once at least once"
+        test IxQTest.putManyAfterOnceAtLeastOnce
+        logSub "IxQueue.broadcasttMany after IxQueue.once at least once"
+        test IxQTest.broadcastManyAfterOnceAtLeastOnce
+        logSub "IxQueue.putMany after IxQueue.once only once"
+        test IxQTest.putManyAfterOnceOnlyOnce
+        logSub "IxQueue.broadcastMany after IxQueue.once only once"
+        test IxQTest.broadcastManyAfterOnceOnlyOnce
+        logSub "IxQueue.read idempotent"
+        test IxQTest.readIdempotent
+        logSub "IxQueue.take identity"
+        test IxQTest.takeIdentity
+        logSub "IxQueue.take 2nd idempotent"
+        test IxQTest.take2ndIdempotent
+        logSub "IxQueue.del pending identity"
+        test IxQTest.delPendingIdentity
+        logSub "IxQueue.drain consumes"
+        test IxQTest.drainConsumes

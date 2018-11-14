@@ -70,3 +70,147 @@ putManyBroadcastsAfterOnSync xs onComplete = do
         then onComplete (Object.all (\_ z -> z == ArrayNE.toArray xs) newXs)
         else pure unit
   IxQ.broadcastMany q xs
+
+
+putManyBeforeOnSync :: forall a
+                    . Eq a
+                   => NonEmptyArray a
+                   -> (Boolean -> Effect Unit)
+                   -> Effect Unit
+putManyBeforeOnSync xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  (obtained :: Ref (Array a)) <- Ref.new []
+  IxQ.putMany q k xs
+  IxQ.on q k \x -> do
+    newXs <- Ref.modify (\ys -> ys `Array.snoc` x) obtained
+    if Array.length newXs == ArrayNE.length xs
+       then onComplete (newXs == ArrayNE.toArray xs)
+       else pure unit
+
+
+putManyAfterOnceAtLeastOnce :: forall a
+                             . Eq a
+                            => NonEmptyArray a
+                            -> (Boolean -> Effect Unit)
+                            -> Effect Unit
+putManyAfterOnceAtLeastOnce xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.once q k \x -> onComplete (x == ArrayNE.head xs)
+  IxQ.putMany q k xs
+
+
+broadcastManyAfterOnceAtLeastOnce :: forall a
+                                      . Eq a
+                                     => NonEmptyArray a
+                                     -> (Boolean -> Effect Unit)
+                                     -> Effect Unit
+broadcastManyAfterOnceAtLeastOnce xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.once q k \x -> onComplete (x == ArrayNE.head xs)
+  IxQ.broadcastMany q xs
+
+
+putManyAfterOnceOnlyOnce :: forall a
+                          . Eq a
+                         => NonEmptyArray a
+                         -> (Boolean -> Effect Unit)
+                         -> Effect Unit
+putManyAfterOnceOnlyOnce xs onComplete = do
+  q <- IxQ.new
+  (valuesObtained :: Ref (Array a)) <- Ref.new []
+  k <- show <$> genUUID
+  IxQ.once q k \x -> void (Ref.modify (\ys -> ys `Array.snoc` x) valuesObtained)
+  IxQ.putMany q k xs
+  void $ setTimeout 100 do
+    vs <- Ref.read valuesObtained
+    onComplete (vs == [ArrayNE.head xs])
+
+
+broadcastManyAfterOnceOnlyOnce :: forall a
+                          . Eq a
+                         => NonEmptyArray a
+                         -> (Boolean -> Effect Unit)
+                         -> Effect Unit
+broadcastManyAfterOnceOnlyOnce xs onComplete = do
+  q <- IxQ.new
+  (valuesObtained :: Ref (Array a)) <- Ref.new []
+  k <- show <$> genUUID
+  IxQ.once q k \x -> void (Ref.modify (\ys -> ys `Array.snoc` x) valuesObtained)
+  IxQ.broadcastMany q xs
+  void $ setTimeout 100 do
+    vs <- Ref.read valuesObtained
+    onComplete (vs == [ArrayNE.head xs])
+
+
+readIdempotent :: forall a
+                . Eq a
+               => NonEmptyArray a
+               -> (Boolean -> Effect Unit)
+               -> Effect Unit
+readIdempotent xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.putMany q k xs
+  r1 <- IxQ.read q k
+  r2 <- IxQ.read q k
+  onComplete (r1 == r2)
+
+
+takeIdentity :: forall a
+              . Eq a
+             => NonEmptyArray a
+             -> (Boolean -> Effect Unit)
+             -> Effect Unit
+takeIdentity xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.putMany q k xs
+  ys <- IxQ.take q k
+  onComplete (ArrayNE.toArray xs == ys)
+
+
+take2ndIdempotent :: forall a
+                   . Eq a
+                  => NonEmptyArray a
+                  -> (Boolean -> Effect Unit)
+                  -> Effect Unit
+take2ndIdempotent xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.putMany q k xs
+  _ <- IxQ.take q k
+  ys1 <- IxQ.take q k
+  ys2 <- IxQ.take q k
+  onComplete (ys1 == ys2 && ys2 == [])
+
+
+delPendingIdentity :: forall a
+                    . Eq a
+                   => NonEmptyArray a
+                   -> (Boolean -> Effect Unit)
+                   -> Effect Unit
+delPendingIdentity xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.drain q k
+  _ <- IxQ.del q k
+  IxQ.putMany q k xs
+  ys <- IxQ.read q k
+  onComplete (ArrayNE.toArray xs == ys)
+
+
+drainConsumes :: forall a
+               . Eq a
+              => NonEmptyArray a
+              -> (Boolean -> Effect Unit)
+              -> Effect Unit
+drainConsumes xs onComplete = do
+  q <- IxQ.new
+  k <- show <$> genUUID
+  IxQ.drain q k
+  IxQ.putMany q k xs
+  ys <- IxQ.read q k
+  onComplete ([] == ys)
