@@ -13,9 +13,9 @@ module Queue
   ) where
 
 
-import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
+import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly)
 
-import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<), (<$))
+import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<), (<$), ($))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
@@ -25,8 +25,11 @@ import Data.Array.NonEmpty (singleton) as Array
 import Data.Array.ST (push, splice, thaw, unsafeFreeze, withArray) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
+import Control.Monad.Rec.Class (forever)
 import Effect (Effect)
-import Effect.Aff (Aff, makeAff, effectCanceler)
+import Effect.Aff (Aff, makeAff, effectCanceler, forkAff, killFiber, joinFiber, delay, error)
+import Effect.Aff.AVar as AVar
+import Effect.Class (liftEffect)
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
 
@@ -43,6 +46,58 @@ instance queueScopeQueue :: QueueScope Queue where
   allowWriting (Queue q) = Queue q
   writeOnly    (Queue q) = Queue q
   allowReading (Queue q) = Queue q
+
+
+instance queueExtraQueueOne :: QueueExtra Queue where
+  debounceStatic toWaitFurther output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      x <- draw presented
+      newWriter <- forkAff do
+        delay toWaitFurther
+        liftEffect (put (allowWriting output) x)
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> killFiber (error "Killing writer") i
+      AVar.put newWriter writingThread
+    pure {input: writeOnly presented, writer}
+  throttleStatic toWaitFurther output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      x <- draw presented
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> joinFiber i
+      newWriter <- forkAff do
+        delay toWaitFurther
+        liftEffect (put (allowWriting output) x)
+      AVar.put newWriter writingThread
+    pure {input: writeOnly presented, writer}
+  intersperseStatic timeBetween xM output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> joinFiber i
+      newWriter <- forkAff do
+        delay timeBetween
+        x <- xM
+        liftEffect (put (allowWriting output) x)
+      AVar.put newWriter writingThread
+    listener <- forkAff $ forever do
+      y <- draw presented
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> killFiber (error "Killing listener") i
+      liftEffect (put (allowWriting output) y)
+    pure {input: writeOnly presented, writer, listener}
 
 
 -- | Supply a single input to the queue.
