@@ -15,7 +15,7 @@ module Queue
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
-import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<))
+import Prelude (Unit, pure, bind, discard, unit, (<$>), (<<<), (<$))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
@@ -26,7 +26,7 @@ import Data.Array.ST (push, splice, thaw, unsafeFreeze, withArray) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
-import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Aff (Aff, makeAff, effectCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
 
@@ -104,11 +104,9 @@ once q@(Queue queue) f' = do
       in  Ref.write (Right handlers') queue
 
 
--- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well).
+-- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well). If this action is canceled, __all__ handlers will be removed from the queue.
 draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
-draw q = makeAff \resolve -> do
-  once q (resolve <<< Right)
-  pure nonCanceler
+draw q = makeAff \resolve -> effectCanceler (del q) <$ once q (resolve <<< Right)
 
 
 -- | Read all pending values (if any), without removing them from the queue.

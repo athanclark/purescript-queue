@@ -16,7 +16,7 @@ module IxQueue
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
-import Prelude
+import Prelude (Unit, ($), (<$), bind, pure, unit, (<$>), discard, unless, when, (<<<), void)
 import Foreign.Object (Object)
 import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup) as Object
 import Foreign.Object.ST (poke, peek, delete) as Object
@@ -32,7 +32,7 @@ import Data.Array.ST (push, pushAll, splice, thaw, unsafeFreeze, withArray) as A
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
-import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Aff (Aff, makeAff, effectCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Partial.Unsafe (unsafePartial)
@@ -242,11 +242,9 @@ once q@(IxQueue {broadcast:b,individual}) k f = do
   ST.run go
 
 
--- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well).
+-- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well). Canceling this action will remove the handler identified by the key.
 draw :: forall rw a. IxQueue (read :: READ | rw) a -> String -> Aff a
-draw q k = makeAff \resolve -> do
-  once q k (resolve <<< Right)
-  pure nonCanceler
+draw q k = makeAff \resolve -> effectCanceler (void (del q k)) <$ once q k (resolve <<< Right)
 
 
 -- | Read all pending values (if any) for a specific index, without removing them from the queue.
