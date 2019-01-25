@@ -5,13 +5,13 @@
 module Queue.One
   ( module Queue.Types
   , Queue (..), new
-  , put, putMany, on, once, draw, take, read, del, drain
+  , put, putMany, get, on, once, draw, take, read, del, drain
   ) where
 
 
-import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
+import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly)
 
-import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<))
+import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<), (<$), ($))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
@@ -19,10 +19,13 @@ import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (singleton, fromArray, head, tail) as ArrayNE
 import Data.Array.ST (push, withArray) as Array
 import Control.Monad.ST (run) as ST
+import Control.Monad.Rec.Class (forever)
 import Effect (Effect)
-import Effect.Aff (Aff, makeAff, nonCanceler)
+import Effect.Aff (Aff, makeAff, nonCanceler, error, killFiber, joinFiber, delay, forkAff)
+import Effect.Aff.AVar as AVar
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
+import Effect.Class (liftEffect)
 
 
 newtype Queue (rw :: # SCOPE) a =
@@ -38,6 +41,64 @@ instance queueScopeQueueOne :: QueueScope Queue where
   allowWriting (Queue q) = Queue q
   writeOnly    (Queue q) = Queue q
   allowReading (Queue q) = Queue q
+
+
+instance queueExtraQueueOne :: QueueExtra Queue where
+  debounceStatic toWaitFurther output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      x <- get presented
+      newWriter <- forkAff do
+        delay toWaitFurther
+        liftEffect (put (allowWriting output) x)
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> killFiber (error "Killing writer") i
+      forcePut newWriter writingThread
+    pure {input: writeOnly presented, writer}
+  throttleStatic toWaitFurther output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      x <- get presented
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> joinFiber i
+      newWriter <- forkAff do
+        delay toWaitFurther
+        liftEffect (put (allowWriting output) x)
+      forcePut newWriter writingThread
+    pure {input: writeOnly presented, writer}
+  intersperseStatic timeBetween xM output = do
+    presented <- liftEffect new
+    writingThread <- AVar.empty
+    writer <- forkAff $ forever do
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> joinFiber i
+      newWriter <- forkAff do
+        delay timeBetween
+        x <- xM
+        liftEffect (put (allowWriting output) x)
+      forcePut newWriter writingThread
+    listener <- forkAff $ forever do
+      y <- get presented
+      mInvoker <- AVar.tryTake writingThread
+      case mInvoker of
+        Nothing -> pure unit
+        Just i -> killFiber (error "Killing listener") i
+      liftEffect (put (allowWriting output) y)
+    pure {input: writeOnly presented, writer, listener}
+
+
+forcePut :: forall a. a -> AVar.AVar a -> Aff Unit
+forcePut x avar = do
+  _ <- AVar.tryTake avar
+  AVar.put x avar
 
 
 -- | Supply a single input to the queue.
@@ -58,6 +119,10 @@ putMany(Queue queue) xss = do
         let pending' = ST.run (Array.withArray (Array.push x) pending)
         in  Ref.write (Left pending') queue
       Right f -> f x
+
+
+get :: forall rw a. Queue (read :: READ | rw) a -> Aff a -- FIXME should be cancelable
+get q = makeAff \resolve -> nonCanceler <$ on q (resolve <<< Right)
 
 
 -- | Assign the handler to the singleton queue.
