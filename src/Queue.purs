@@ -48,7 +48,7 @@ instance queueScopeQueue :: QueueScope Queue where
   allowReading (Queue q) = Queue q
 
 
-instance queueExtraQueueOne :: QueueExtra Queue where
+instance queueExtraQueue :: QueueExtra Queue where
   debounceStatic toWaitFurther output = do
     presented <- liftEffect new
     writingThread <- AVar.empty

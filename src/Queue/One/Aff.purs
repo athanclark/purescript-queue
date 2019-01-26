@@ -4,7 +4,7 @@ import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting
 import Queue.One (Queue)
 import Queue.One as Queue
 
-import Prelude
+import Prelude (Unit, bind, discard, (>>=), pure, (<$>))
 import Data.Either (Either (..))
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
@@ -57,7 +57,7 @@ registerSync :: forall input output
              -> (input -> Effect output)
              -> Effect Unit
 registerSync (IOQueues {input,output}) f =
-  Queue.on input \x -> Queue.put output =<< f x
+  Queue.on input \x -> f x >>= Queue.put output
 
 
 
@@ -67,4 +67,4 @@ registerSyncOnce :: forall input output
                  -> (input -> Effect output)
                  -> Effect Unit
 registerSyncOnce (IOQueues {input,output}) f =
-  Queue.once input \x -> Queue.put output =<< f x
+  Queue.once input \x -> f x >>= Queue.put output

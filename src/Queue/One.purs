@@ -5,7 +5,7 @@
 module Queue.One
   ( module Queue.Types
   , Queue (..), new
-  , put, putMany, on, once, draw, take, read, del, drain
+  , put, putMany, on, once, draw, take, takeLast, length, read, del, drain
   ) where
 
 
@@ -163,10 +163,28 @@ take :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Array a)
 take (Queue queue) = do
   ePH <- Ref.read queue
   case ePH of
-    Left pending -> do
-      Ref.write (Left []) queue
-      pure pending
     Right _ -> pure []
+    Left pending -> pending <$ Ref.write (Left []) queue
+
+
+-- | Pops the last pending value added, if any.
+takeLast :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Maybe a)
+takeLast (Queue queue) = do
+  ePH <- Ref.read queue
+  case ePH of
+    Right _ -> pure Nothing
+    Left pending -> case Array.unsnoc pending of
+      Nothing -> pure Nothing
+      Just {init,last} -> last <$ Ref.write (Left init)
+
+
+-- | Returns the length of pending values.
+length :: forall rw a. Queue (write :: WRITE | rw) a -> Effect Int
+length (Queue queue) = do
+  ePH <- Ref.read queue
+  pure $ case ePH of
+    Right _ -> 0
+    Left pending -> Array.length pending
 
 
 -- | Removes the registered callbacks, if any.

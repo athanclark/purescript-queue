@@ -2,6 +2,11 @@
 -- | where removing them individually from the queue at runtime is necessary. This
 -- | could be useful in interfaces where the set of listening handlers is unknown and dynamic, mimicking
 -- | global access to updated values.
+-- |
+-- | This data type should not be considered a "handler manager", that intelligently determines where to send
+-- | pending messages; it's merely a "handler delegator" - giving multiple similarly-typed handlers `String`-based names,
+-- | where effort is not made in delegating the message itself. This is why `IxQueue` is not an instance of `QueueExtra` -
+-- | we don't have an efficient way of re-delegating the broadcasted messages to their appropriate indexed handlers.
 
 module IxQueue
   ( module Queue.Types

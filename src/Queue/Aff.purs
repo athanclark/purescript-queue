@@ -4,16 +4,17 @@ import Queue.Types (READ, WRITE, readOnly, writeOnly, allowReading, allowWriting
 import Queue (Queue)
 import Queue as Queue
 
-import Prelude
+import Prelude (Unit, bind, discard, (>>=), pure, (<$>))
 import Data.Either (Either (..))
 import Effect (Effect)
 import Effect.Aff (Aff, makeAff, nonCanceler)
 
 
-
+-- | Represents an asynchronously invokable function `input -> Aff output`
 newtype IOQueues input output = IOQueues
   { input :: Queue (read :: READ) input
   , output :: Queue (write :: WRITE) output
+  , cancel :: Queue (read :: READ) Error
   }
 
 
@@ -21,18 +22,20 @@ new :: forall input output. Effect (IOQueues input output)
 new = do
   input <- readOnly <$> Queue.new
   output <- writeOnly <$> Queue.new
-  pure (IOQueues {input,output})
+  cancel <- readOnly <$> Queue.new
+  pure (IOQueues {input,output,cancel})
 
 -- * Invoking
 
--- | Invoke the queue in `Aff`
+-- | Invoke the queue in `Aff`.
 callAsync :: forall input output
            . IOQueues input output
           -> input
           -> Aff output
-callAsync (IOQueues {input,output}) x =
+callAsync qs@(IOQueues {output}) x = makeAff \resolve -> (Queue.del output, and fuckin like pop the last one? Check length to see if it was already consumed?) <$ callAsyncEff qs (resolve <<< Right) x
+  x <- Queue.draw (allowReading output)
   makeAff \resolve -> do
-    Queue.once (allowReading output) \y -> resolve (Right y)
+    Queue.draw (allowReading output) \y -> resolve (Right y)
     Queue.put (allowWriting input) x
     pure nonCanceler
 
@@ -56,7 +59,7 @@ registerSync :: forall input output
              -> (input -> Effect output)
              -> Effect Unit
 registerSync (IOQueues {input,output}) f =
-  Queue.on input \x -> Queue.put output =<< f x
+  Queue.on input \x -> f x >>= Queue.put output
 
 
 -- | Bind a receiver only once
@@ -65,4 +68,4 @@ registerSyncOnce :: forall input output
                  -> (input -> Effect output)
                  -> Effect Unit
 registerSyncOnce (IOQueues {input,output}) f =
-  Queue.once input \x -> Queue.put output =<< f x
+  Queue.once input \x -> f x >>= Queue.put output
