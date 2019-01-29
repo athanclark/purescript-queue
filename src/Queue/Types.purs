@@ -30,41 +30,24 @@ class QueueExtra (queue :: # SCOPE -> Type -> Type) where
 
 class Queue (queue :: # SCOPE -> Type -> Type) where
   new :: forall a. Effect (queue (read :: READ, write :: WRITE) a)
+  -- | Pushes multiple values on the stack of pending values, or traverses through the handler(s).
   putMany :: forall a rw. queue (write :: WRITE | rw) a -> Array a -> Effect Unit
-  on :: forall a rw. queue (read :: READ | rw) a -> Handler a -> Effect Unit
-  read :: forall a rw. queue rw a -> Effect (Array a)
+  -- | Pops as many values as indicated off the stack of pending values, if any.
+  popMany :: forall a rw. queue (write :: WRITE | rw) a -> Int -> Effect (Array a)
+  -- | Equivalent to `length q >>= popMany q`, but without the overhead.
   take :: forall a rw. queue (write :: WRITE | rw) a -> Effect (Array a)
-  -- FUCK - uncons? unsnoc? take all, init? last?
+  on :: forall a rw. queue (read :: READ | rw) a -> Handler a -> Effect Unit
+  once :: forall rw a. queue (read :: READ | rw) a -> Handler a -> Effect Unit
   del :: forall a rw. queue (read :: READ | rw) a -> Effect Unit
+  read :: forall a rw. queue rw a -> Effect (Array a)
+  length :: forall a rw. queue rw a -> Effect Int
 
 
 put :: forall a rw. queue (write :: WRITE | rw) a -> a -> Effect Unit
 put q x = putMany q [x]
 
--- | Treat this as the only handler, and on the next input, clear all handlers.
-once :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
-once q@(Queue queue) f' = do
-  let f x = do
-        del q
-        f' x
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending ->
-      let go :: forall r. ST r (Effect Unit)
-          go = do
-            a <- Array.thaw pending
-            mx <- Array.splice 0 1 [] a
-            case Array.head mx of
-              Nothing -> pure (Ref.write (Right [f]) queue)
-              Just x -> do
-                xs <- Array.unsafeFreeze a
-                pure do
-                  f x
-                  Ref.write (Left xs) queue
-      in  ST.run go
-    Right handlers ->
-      let handlers' = ST.run (Array.withArray (Array.push f) handlers)
-      in  Ref.write (Right handlers') queue
+pop :: forall a rw. queue (write :: WRITE | rw) a -> Effect (Maybe a)
+pop q = Array.head <$> popMany q 1
 
 
 -- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well). If this action is canceled, __all__ handlers will be removed from the queue.
@@ -74,5 +57,4 @@ draw q = makeAff \resolve -> effectCanceler (del q) <$ once q (resolve <<< Right
 
 -- | Adds a listener that does nothing, and "drains" any pending messages.
 drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
-drain q =
-  on q \_ -> pure unit
+drain q = on q \_ -> pure unit
