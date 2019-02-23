@@ -2,7 +2,6 @@ module Queue.Types where
 
 import Prelude (Unit, pure, unit, (<$), (<$>), (<<<))
 import Data.Array (head) as Array
-import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Time.Duration (Milliseconds)
 import Data.Maybe (Maybe)
 import Data.Either (Either (Right))

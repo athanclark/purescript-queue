@@ -11,29 +11,33 @@
 module IxQueue
   ( module Queue.Types
   , IxQueue (..)
-  , new, put, putMany
+  , new, put, putMany, pop, popMany
   , broadcast, broadcastMany
   , broadcastExcept, broadcastManyExcept
   , on, once, draw
-  , readBroadcast, read, takeBroadcast, take
+  , readBroadcast, read
+  , takeBroadcast, takeBroadcastMany, takeBroadcastAll
+  , popBroadcast, popBroadcastMany
+  , take, takeMany, takeAll
   , del, clear, drain
   ) where
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
 
-import Prelude (Unit, ($), (<$), bind, pure, unit, (<$>), discard, unless, when, (<<<), void)
+import Prelude (Unit, ($), (<$), bind, pure, unit, (<$>), discard, unless, when, (<<<), void, (<>))
 import Foreign.Object (Object)
-import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup) as Object
+import Foreign.Object (empty, filter, freezeST, isEmpty, thawST, keys, lookup, insert) as Object
 import Foreign.Object.ST (poke, peek, delete) as Object
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Tuple (Tuple (..))
-import Data.Traversable (for_, traverse_)
+import Data.Foldable (foldl)
+import Data.Traversable (for_, traverse_, class Traversable)
 import Data.FoldableWithIndex (traverseWithIndex_)
-import Data.Array (head, null, notElem) as Array
+import Data.Array (head, null, notElem, snoc, drop, take, reverse) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons) as ArrayNE
-import Data.Array.ST (push, pushAll, splice, thaw, unsafeFreeze, withArray) as Array
+import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons, snoc) as ArrayNE
+import Data.Array.ST (splice, thaw, unsafeFreeze) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
 import Effect (Effect)
@@ -46,7 +50,8 @@ type Individual a = Object (Either (NonEmptyArray a) (Handler a))
 
 newtype IxQueue (rw :: # SCOPE) a = IxQueue
   { individual :: Ref (Object (Either (NonEmptyArray a) (Handler a)))
-  , broadcast  :: Ref (Array a)
+                  -- either a nonempty set of pending vals, or a handler
+  , broadcast  :: Ref (Array a) -- possibly empty set of pending values
   }
 
 
@@ -65,50 +70,35 @@ instance queueScopeIxQueue :: QueueScope IxQueue where
 
 -- | Supply a single input to the indexed queue.
 put :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> a -> Effect Unit
-put q k x = putMany q k (ArrayNE.singleton x)
+put q k x = putMany q k [x]
 
 
 -- | Application policy is such that the inputs are stored in the named handler's "pending" values,
 --   if a handler isn't registered. If so, apply the handler uniformly across the values.
-putMany :: forall a rw
-         . IxQueue (write :: WRITE | rw) a
+putMany :: forall a rw t
+         . Traversable t
+        => IxQueue (write :: WRITE | rw) a
         -> String
-        -> NonEmptyArray a
+        -> t a
         -> Effect Unit
 putMany (IxQueue {individual}) k xss =
   for_ xss \x -> do
     hs <- Ref.read individual
     case Object.lookup k hs of
-      Nothing ->
-        -- store locally pending values
-        let obj = ST.run go
-            go :: forall r. ST r (Individual a)
-            go = do
-              o <- Object.thawST hs
-              o' <- Object.poke k (Left (ArrayNE.singleton x)) o
-              Object.freezeST o'
-        in  Ref.write obj individual
+      Nothing -> Ref.write (Object.insert k (Left (ArrayNE.singleton x)) hs) individual
       Just ePH -> case ePH of
         -- append locally pending values
-        Left pending ->
-          let obj = ST.run go
-              go :: forall r. ST r (Individual a)
-              go = do
-                pending' <- Array.withArray (Array.push x) (ArrayNE.toArray pending)
-                o <- Object.thawST hs
-                o' <- Object.poke k (Left (unsafeFromArray pending')) o
-                Object.freezeST o'
-          in  Ref.write obj individual
+        Left pending -> Ref.write (Object.insert k (Left (ArrayNE.snoc pending x)) hs) individual
         -- suit handlers
         Right h -> h x
 
 
 
 broadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> a -> Effect Unit
-broadcast q x = broadcastMany q (ArrayNE.singleton x)
+broadcast q x = broadcastMany q [x]
 
 
-broadcastMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> NonEmptyArray a -> Effect Unit
+broadcastMany :: forall a rw t. Traversable t => IxQueue (write :: WRITE | rw) a -> t a -> Effect Unit
 broadcastMany q xs = broadcastManyExcept q [] xs
 
 
@@ -119,10 +109,11 @@ broadcastExcept q ex x = broadcastManyExcept q ex (ArrayNE.singleton x)
 -- | Application policy is such that the inputs will be applied uniformly to all handlers, sorted by
 --   their keyed ordering, per input. Values are stored globally iff. there are no handlers, and locally
 --   if there's already pending values.
-broadcastManyExcept :: forall a rw
-                     . IxQueue (write :: WRITE | rw) a
+broadcastManyExcept :: forall a rw t
+                     . Traversable t
+                    => IxQueue (write :: WRITE | rw) a
                     -> Array String -- ^ "Excluding"
-                    -> NonEmptyArray a
+                    -> t a
                     -> Effect Unit
 broadcastManyExcept (IxQueue {individual,broadcast:broadcast'}) excluding xss = do
   hs <- Ref.read individual
@@ -134,8 +125,7 @@ broadcastManyExcept (IxQueue {individual,broadcast:broadcast'}) excluding xss = 
   pendingB <- Ref.read broadcast'
 
   if Object.isEmpty (Object.filter hasHandler hs)
-    then let pendingB' = ST.run (Array.withArray (Array.pushAll (ArrayNE.toArray xss)) pendingB)
-         in  Ref.write pendingB' broadcast'
+    then  Ref.write (pendingB <> foldl Array.snoc [] xss) broadcast'
     else
       let go :: a -> Effect Unit
           go x = do
@@ -144,14 +134,7 @@ broadcastManyExcept (IxQueue {individual,broadcast:broadcast'}) excluding xss = 
                 go' k ePH =
                   when (k `Array.notElem` excluding) $ case ePH of
                     Left pending ->
-                      let obj = ST.run go1
-                          go1 :: forall r. ST r (Individual a)
-                          go1 = do
-                            pending' <- Array.withArray (Array.push x) (ArrayNE.toArray pending)
-                            hs'' <- Object.thawST hs'
-                            _ <- Object.poke k (Left (unsafeFromArray pending')) hs''
-                            Object.freezeST hs''
-                      in  Ref.write obj individual
+                      Ref.write (Object.insert k (Left (ArrayNE.snoc pending x)) hs') individual
                     Right h -> h x
             traverseWithIndex_ go' hs'
       in  traverse_ go xss
@@ -268,9 +251,69 @@ readBroadcast :: forall a rw. IxQueue rw a -> Effect (Array a)
 readBroadcast (IxQueue {broadcast:b}) = Ref.read b
 
 
+pop :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Maybe a)
+pop q k = Array.head <$> popMany q k 1
+
+
+-- | Removes as many locally pending inputs for a specific key, in the order of youngest to oldest.
+popMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Int -> Effect (Array a)
+popMany (IxQueue {individual}) k n = do
+  hs <- Ref.read individual
+  let mNew = ST.run go
+      go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
+      go = do
+        o <- Object.thawST hs
+        mX <- Object.peek k o
+        case mX of
+          Nothing -> pure Nothing
+          Just ePH -> case ePH of
+            Right _ -> pure Nothing
+            Left xss -> do
+              let xss' = Array.reverse (ArrayNE.toArray xss)
+                  rest = Array.reverse (Array.drop n xss')
+                  unrest = Array.take n xss'
+              void $ case ArrayNE.fromArray rest of
+                Nothing -> Object.delete k o
+                Just rest' -> Object.poke k (Left rest') o
+              Just <<< Tuple unrest <$> Object.freezeST o
+  case mNew of
+    Nothing -> pure []
+    Just (Tuple pending obj) -> do
+      Ref.write obj individual
+      pure pending
+
+
+-- | Removes as many locally pending inputs for a specific key, in the order of oldest to youngest.
+takeMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Int -> Effect (Array a)
+takeMany (IxQueue {individual}) k n = do
+  hs <- Ref.read individual
+  let mNew = ST.run go
+      go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
+      go = do
+        o <- Object.thawST hs
+        mX <- Object.peek k o
+        case mX of
+          Nothing -> pure Nothing
+          Just ePH -> case ePH of
+            Right _ -> pure Nothing
+            Left xss -> do
+              let xss' = ArrayNE.toArray xss
+                  rest = Array.drop n xss'
+                  unrest = Array.take n xss'
+              void $ case ArrayNE.fromArray rest of
+                Nothing -> Object.delete k o
+                Just rest' -> Object.poke k (Left rest') o
+              Just <<< Tuple unrest <$> Object.freezeST o
+  case mNew of
+    Nothing -> pure []
+    Just (Tuple pending obj) -> do
+      Ref.write obj individual
+      pure pending
+
+
 -- | Removes locally pending inputs for a specific key
-take :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Array a)
-take (IxQueue {individual}) k = do
+takeAll :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Array a)
+takeAll (IxQueue {individual}) k = do
   hs <- Ref.read individual
   let mNew = ST.run go
       go :: forall r. ST r (Maybe (Tuple (Array a) (Individual a)))
@@ -291,12 +334,40 @@ take (IxQueue {individual}) k = do
       pure pending
 
 
+take :: forall a rw. IxQueue (write :: WRITE | rw) a -> String -> Effect (Maybe a)
+take q k = Array.head <$> takeMany q k 1
+
+
+takeBroadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> Effect (Maybe a)
+takeBroadcast q = Array.head <$> takeBroadcastMany q 1
+
+
+-- | Removes only the globally pending inputs, oldest to youngest
+takeBroadcastMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> Int -> Effect (Array a)
+takeBroadcastMany (IxQueue {broadcast:b}) n = do
+  xs <- Ref.read b
+  Ref.write (Array.drop n xs) b
+  pure (Array.take n xs)
+
+
 -- | Removes only the globally pending inputs
-takeBroadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> Effect (Array a)
-takeBroadcast (IxQueue {broadcast:b}) = do
+takeBroadcastAll :: forall a rw. IxQueue (write :: WRITE | rw) a -> Effect (Array a)
+takeBroadcastAll (IxQueue {broadcast:b}) = do
   xs <- Ref.read b
   Ref.write [] b
   pure xs
+
+
+popBroadcast :: forall a rw. IxQueue (write :: WRITE | rw) a -> Effect (Maybe a)
+popBroadcast q = Array.head <$> popBroadcastMany q 1
+
+
+-- | Removes only the globally pending inputs, oldest to youngest
+popBroadcastMany :: forall a rw. IxQueue (write :: WRITE | rw) a -> Int -> Effect (Array a)
+popBroadcastMany (IxQueue {broadcast:b}) n = do
+  xs <- Array.reverse <$> Ref.read b
+  Ref.write (Array.reverse (Array.drop n xs)) b
+  pure ((Array.take n xs))
 
 
 -- | Unregisters a handler, returns whether one existed

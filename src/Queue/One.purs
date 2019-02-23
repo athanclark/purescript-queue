@@ -12,17 +12,13 @@ import Queue.Types
   ( kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly
   , class Queue, new, putMany, popMany, take, on, once, del, read, length, put, pop, draw, drain)
 
-import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<), (<$), ($))
+import Prelude (pure, bind, unit, discard, (<$>), (<$), ($))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
 import Data.Array (reverse, uncons, snoc, take, drop, length) as Array
-import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, fromArray, head, tail) as ArrayNE
-import Control.Monad.ST (run) as ST
 import Control.Monad.Rec.Class (forever)
-import Effect (Effect)
-import Effect.Aff (Aff, makeAff, error, killFiber, joinFiber, delay, forkAff, effectCanceler)
+import Effect.Aff (error, killFiber, joinFiber, delay, forkAff)
 import Effect.Aff.AVar as AVar
 import Effect.Ref (Ref)
 import Effect.Ref (read, write, new) as Ref
