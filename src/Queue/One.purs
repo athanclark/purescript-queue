@@ -4,20 +4,21 @@
 
 module Queue.One
   ( module Queue.Types
-  , Queue (..), new
-  , put, putMany, on, once, draw, take, takeLast, length, read, del, drain
+  , Queue (..)
   ) where
 
 
-import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly)
+import Queue.Types
+  ( kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly
+  , class Queue, new, putMany, popMany, take, on, once, del, read, length, put, pop, draw, drain)
 
 import Prelude (Unit, pure, bind, unit, discard, (<$>), (<<<), (<$), ($))
 import Data.Either (Either (..))
 import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
+import Data.Array (reverse, uncons, snoc, take, drop, length) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (singleton, fromArray, head, tail) as ArrayNE
-import Data.Array.ST (push, withArray) as Array
 import Control.Monad.ST (run) as ST
 import Control.Monad.Rec.Class (forever)
 import Effect (Effect)
@@ -28,12 +29,72 @@ import Effect.Ref (read, write, new) as Ref
 import Effect.Class (liftEffect)
 
 
+-- | Represents a singleton queue, with at-most __one__ handler.
 newtype Queue (rw :: # SCOPE) a =
   Queue (Ref (Either (Array a) (Handler a)))
 
 
-new :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
-new = Queue <$> Ref.new (Left [])
+instance queueQueueOne :: Queue Queue where
+  new = Queue <$> Ref.new (Left [])
+  putMany (Queue queue) xss = do
+    for_ xss \x -> do -- left-to-right
+      ePH <- Ref.read queue
+      case ePH of
+        Left pending -> Ref.write (Left (Array.snoc pending x)) queue
+        Right f -> f x
+  popMany (Queue queue) n = do
+    ePH <- Ref.read queue
+    case ePH of
+      Right _ -> pure []
+      Left pending ->
+        let pending' = Array.reverse pending
+        in  Array.take n pending' <$ Ref.write (Left (Array.reverse (Array.drop n pending'))) queue
+  takeMany (Queue queue) n = do
+    ePH <- Ref.read queue
+    case ePH of
+      Right _ -> pure []
+      Left pending -> Array.take n pending <$ Ref.write (Left (Array.drop n pending)) queue
+  takeAll (Queue queue) = do
+    ePH <- Ref.read queue
+    case ePH of
+      Right _ -> pure []
+      Left pending -> pending <$ Ref.write (Left []) queue
+  on (Queue queue) f = do
+    ePH <- Ref.read queue
+    case ePH of
+      Left pending -> do
+        Ref.write (Right f) queue
+        traverse_ f pending
+      Right _ ->
+        Ref.write (Right f) queue
+  once q@(Queue queue) f' = do
+    let f x = do
+          del q
+          f' x
+    ePH <- Ref.read queue
+    case ePH of
+      Left pending -> case Array.uncons pending of
+        Nothing -> Ref.write (Right f) queue
+        Just {head,tail} -> do
+          f head
+          Ref.write (Left tail) queue
+      Right _ ->
+        Ref.write (Right f) queue
+  del (Queue queue) = do
+    ePH <- Ref.read queue
+    case ePH of
+      Left _ -> pure unit
+      Right _ -> Ref.write (Left []) queue
+  read (Queue queue) = do
+    ePH <- Ref.read queue
+    case ePH of
+      Left pending -> pure pending
+      Right _ -> pure []
+  length (Queue queue) = do
+    ePH <- Ref.read queue
+    pure $ case ePH of
+      Right _ -> 0
+      Left pending -> Array.length pending
 
 
 instance queueScopeQueueOne :: QueueScope Queue where
@@ -93,109 +154,3 @@ instance queueExtraQueueOne :: QueueExtra Queue where
         Just i -> killFiber (error "Killing listener") i
       liftEffect (put (allowWriting output) y)
     pure {input: writeOnly presented, writer, listener}
-
-
--- | Supply a single input to the queue.
-put :: forall rw a. Queue (write :: WRITE | rw) a -> a -> Effect Unit
-put q x = putMany q (ArrayNE.singleton x)
-
-
--- | Supply many inputs in batch to the queue.
-putMany:: forall rw a
-        . Queue (write :: WRITE | rw) a
-       -> NonEmptyArray a
-       -> Effect Unit
-putMany(Queue queue) xss = do
-  for_ xss \x -> do
-    ePH <- Ref.read queue
-    case ePH of
-      Left pending ->
-        let pending' = ST.run (Array.withArray (Array.push x) pending)
-        in  Ref.write (Left pending') queue
-      Right f -> f x
-
-
--- | Assign the handler to the singleton queue.
-on :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
-on (Queue queue) f = do
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending -> do
-      Ref.write (Right f) queue
-      traverse_ f pending
-    Right _ ->
-      Ref.write (Right f) queue
-
-
--- | Run the handler only once for the next input before unassigning itself.
-once :: forall rw a. Queue (read :: READ | rw) a -> Handler a -> Effect Unit
-once q@(Queue queue) f' = do
-  let f x = do
-        del q
-        f' x
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending -> case ArrayNE.fromArray pending of
-      Nothing -> Ref.write (Right f) queue
-      Just xss -> do
-        f (ArrayNE.head xss)
-        Ref.write (Left (ArrayNE.tail xss)) queue
-    Right _ ->
-      Ref.write (Right f) queue
-
-
--- | Pull a single asynchronous value out of a queue. Note that this action is cancelable w.r.t. deleting the only listener in the queue; this command.
-draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
-draw q = makeAff \resolve -> effectCanceler (del q) <$ once q (resolve <<< Right)
-
-
--- | Read all pending values (if any), without removing them from the queue.
-read :: forall rw a. Queue rw a -> Effect (Array a)
-read (Queue queue) = do
-  ePH <- Ref.read queue
-  case ePH of
-    Left pending -> pure pending
-    Right _ -> pure []
-
-
--- | Take all pending values (if any) from the queue.
-take :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Array a)
-take (Queue queue) = do
-  ePH <- Ref.read queue
-  case ePH of
-    Right _ -> pure []
-    Left pending -> pending <$ Ref.write (Left []) queue
-
-
--- | Pops the last pending value added, if any.
-takeLast :: forall rw a. Queue (write :: WRITE | rw) a -> Effect (Maybe a)
-takeLast (Queue queue) = do
-  ePH <- Ref.read queue
-  case ePH of
-    Right _ -> pure Nothing
-    Left pending -> case Array.unsnoc pending of
-      Nothing -> pure Nothing
-      Just {init,last} -> last <$ Ref.write (Left init)
-
-
--- | Returns the length of pending values.
-length :: forall rw a. Queue (write :: WRITE | rw) a -> Effect Int
-length (Queue queue) = do
-  ePH <- Ref.read queue
-  pure $ case ePH of
-    Right _ -> 0
-    Left pending -> Array.length pending
-
-
--- | Removes the registered callbacks, if any.
-del :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
-del (Queue queue) = do
-  ePH <- Ref.read queue
-  case ePH of
-    Left _ -> pure unit
-    Right _ -> Ref.write (Left []) queue
-
-
--- | Adds a listener that does nothing, and "drains" any pending messages.
-drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
-drain q = on q \_ -> pure unit

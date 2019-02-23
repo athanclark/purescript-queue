@@ -1,9 +1,14 @@
 module Queue.Types where
 
-import Prelude (Unit)
+import Prelude (Unit, pure, unit, (<$), (<$>), (<<<))
+import Data.Array (head) as Array
+import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Time.Duration (Milliseconds)
+import Data.Maybe (Maybe)
+import Data.Either (Either (Right))
+import Data.Traversable (class Traversable)
 import Effect (Effect)
-import Effect.Aff (Aff, Fiber)
+import Effect.Aff (Aff, Fiber, makeAff, effectCanceler)
 
 
 foreign import kind SCOPE
@@ -27,34 +32,45 @@ class QueueExtra (queue :: # SCOPE -> Type -> Type) where
   throttleStatic :: forall a. Milliseconds -> queue (read :: READ) a -> Aff {input :: queue (write :: WRITE) a, writer :: Fiber Unit}
   intersperseStatic :: forall a. Milliseconds -> Aff a -> queue (read :: READ) a -> Aff {input :: queue (write :: WRITE) a, writer :: Fiber Unit, listener :: Fiber Unit}
 
-
+-- | Represents an un-indexed queue - such that identifying handlers is not supported.
 class Queue (queue :: # SCOPE -> Type -> Type) where
   new :: forall a. Effect (queue (read :: READ, write :: WRITE) a)
   -- | Pushes multiple values on the stack of pending values, or traverses through the handler(s).
-  putMany :: forall a rw. queue (write :: WRITE | rw) a -> Array a -> Effect Unit
-  -- | Pops as many values as indicated off the stack of pending values, if any.
+  putMany :: forall a rw t. Traversable t => queue (write :: WRITE | rw) a -> t a -> Effect Unit -- traversable?
+  -- | Pops as many values as indicated off the stack of pending values, if any, in the reverse
+  -- | order they were added - i.e. youngest first.
   popMany :: forall a rw. queue (write :: WRITE | rw) a -> Int -> Effect (Array a)
-  -- | Equivalent to `length q >>= popMany q`, but without the overhead.
-  take :: forall a rw. queue (write :: WRITE | rw) a -> Effect (Array a)
+  -- | Pops as many values as indicated off the stack of pending values, if any, in the same order
+  -- | they were added - i.e. oldest first.
+  takeMany :: forall a rw. queue (write :: WRITE | rw) a -> Int -> Effect (Array a)
+  -- | Equivalent to `length q >>= takeMany q`, but without the overhead.
+  takeAll :: forall a rw. queue (write :: WRITE | rw) a -> Effect (Array a)
+  -- | Assign a handler to capture queue events
   on :: forall a rw. queue (read :: READ | rw) a -> Handler a -> Effect Unit
+  -- | Removes a handler after first run
   once :: forall rw a. queue (read :: READ | rw) a -> Handler a -> Effect Unit
   del :: forall a rw. queue (read :: READ | rw) a -> Effect Unit
   read :: forall a rw. queue rw a -> Effect (Array a)
   length :: forall a rw. queue rw a -> Effect Int
 
-
-put :: forall a rw. queue (write :: WRITE | rw) a -> a -> Effect Unit
+-- | Put only one event.
+put :: forall a rw queue. Queue queue => queue (write :: WRITE | rw) a -> a -> Effect Unit
 put q x = putMany q [x]
 
-pop :: forall a rw. queue (write :: WRITE | rw) a -> Effect (Maybe a)
+-- | Pop the latest added event.
+pop :: forall a rw queue. Queue queue => queue (write :: WRITE | rw) a -> Effect (Maybe a)
 pop q = Array.head <$> popMany q 1
 
+-- | Take the first added event.
+take :: forall a rw queue. Queue queue => queue (write :: WRITE | rw) a -> Effect (Maybe a)
+take q = Array.head <$> takeMany q 1
 
--- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers (they will all receive the value as well). If this action is canceled, __all__ handlers will be removed from the queue.
-draw :: forall rw a. Queue (read :: READ | rw) a -> Aff a
+-- | Pull the next asynchronous value out of a queue. Doesn't affect existing handlers
+-- | (they will all receive the value as well). If this action is canceled, __all__
+-- | handlers will be removed from the queue, because this interface is un-indexed.
+draw :: forall rw a queue. Queue queue => queue (read :: READ | rw) a -> Aff a
 draw q = makeAff \resolve -> effectCanceler (del q) <$ once q (resolve <<< Right)
 
-
 -- | Adds a listener that does nothing, and "drains" any pending messages.
-drain :: forall rw a. Queue (read :: READ | rw) a -> Effect Unit
+drain :: forall rw a queue. Queue queue => queue (read :: READ | rw) a -> Effect Unit
 drain q = on q \_ -> pure unit
