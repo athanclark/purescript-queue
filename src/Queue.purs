@@ -1,4 +1,4 @@
--- | Un-indexed queues with a set of handlers - this is useful for sending messages to a set of recipients,
+-- | Un-indexed queues with a set of handlers - this is useful for broadcasting messages to a set of recipients,
 -- | where removing them individually from the queue isn't necessary (but incremental additions are). This
 -- | could be useful in interfaces where the list of handlers strictly increases, then gets wiped all at
 -- | once if desired (i.e. a feed of social media posts).
@@ -6,12 +6,15 @@
 module Queue
   ( module Queue.Types
   , Queue (..)
+  , new
   ) where
 
 
 import Queue.Types
   ( kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly
-  , class Queue, new, putMany, popMany, take, on, once, del, read, length, put, pop, draw, drain)
+  , class Queue, put, putMany, pop, popMany, take, takeAll, takeMany, on, once, del, read, length, draw, drain)
+
+import Queue.Types (new) as Q
 
 import Prelude (pure, bind, discard, unit, (<$>), (<$), ($))
 import Data.Either (Either (..))
@@ -21,6 +24,7 @@ import Data.Array (reverse, length, snoc, take, drop, uncons) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty (snoc, singleton) as ArrayNE
 import Control.Monad.Rec.Class (forever)
+import Effect (Effect)
 import Effect.Aff (forkAff, killFiber, joinFiber, delay, error)
 import Effect.Aff.AVar (empty, tryTake, put) as AVar
 import Effect.Class (liftEffect)
@@ -30,6 +34,9 @@ import Effect.Ref (read, write, new) as Ref
 
 -- | Either a non empty set of handlers, or a possibly empty set of pending values.
 newtype Queue (rw :: # SCOPE) a = Queue (Ref (Either (Array a) (NonEmptyArray (Handler a))))
+
+new :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
+new = Q.new
 
 
 instance queueQueue :: Queue Queue where

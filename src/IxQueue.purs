@@ -1,12 +1,7 @@
 -- | Queues with an indexed mapping of handlers - this is useful for sending messages to a set of recipients,
--- | where removing them individually from the queue at runtime is necessary. This
+-- | either discriminately or via broadcast, where removing them individually from the queue is also necessary. This
 -- | could be useful in interfaces where the set of listening handlers is unknown and dynamic, mimicking
 -- | global access to updated values.
--- |
--- | This data type should not be considered a "handler manager", that intelligently determines where to send
--- | pending messages; it's merely a "handler delegator" - giving multiple similarly-typed handlers `String`-based names,
--- | where effort is not made in delegating the message itself. This is why `IxQueue` is not an instance of `QueueExtra` -
--- | we don't have an efficient way of re-delegating the broadcasted messages to their appropriate indexed handlers.
 
 module IxQueue
   ( module Queue.Types
@@ -19,7 +14,7 @@ module IxQueue
   , takeBroadcast, takeBroadcastMany, takeBroadcastAll
   , popBroadcast, popBroadcastMany
   , take, takeMany, takeAll
-  , del, clear, drain
+  , del, clear, drain, length, lengthBroadcast
   ) where
 
 import Queue.Types (kind SCOPE, READ, WRITE, class QueueScope, Handler)
@@ -34,9 +29,9 @@ import Data.Tuple (Tuple (..))
 import Data.Foldable (foldl)
 import Data.Traversable (for_, traverse_, class Traversable)
 import Data.FoldableWithIndex (traverseWithIndex_)
-import Data.Array (head, null, notElem, snoc, drop, take, reverse) as Array
+import Data.Array (head, null, notElem, snoc, drop, take, reverse, length) as Array
 import Data.Array.NonEmpty (NonEmptyArray)
-import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons, snoc) as ArrayNE
+import Data.Array.NonEmpty (singleton, toArray, fromArray, uncons, snoc, length) as ArrayNE
 import Data.Array.ST (splice, thaw, unsafeFreeze) as Array
 import Control.Monad.ST (ST)
 import Control.Monad.ST (run) as ST
@@ -44,7 +39,6 @@ import Effect (Effect)
 import Effect.Aff (Aff, makeAff, effectCanceler)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
-import Partial.Unsafe (unsafePartial)
 
 type Individual a = Object (Either (NonEmptyArray a) (Handler a))
 
@@ -405,9 +399,16 @@ drain :: forall a rw. IxQueue (read :: READ | rw) a -> String -> Effect Unit
 drain q k = on q k \_ -> pure unit
 
 
+length :: forall a rw. IxQueue rw a -> String -> Effect Int
+length (IxQueue{individual}) k = do
+  hs <- Ref.read individual
+  case Object.lookup k hs of
+    Nothing -> pure 0
+    Just ePH -> case ePH of
+      Left pending -> pure (ArrayNE.length pending)
+      Right _ -> pure 0
 
 
-
-unsafeFromArray :: forall x. Array x -> NonEmptyArray x
-unsafeFromArray xs = unsafePartial $ case ArrayNE.fromArray xs of
-  Just xs' -> xs'
+lengthBroadcast :: forall a rw. IxQueue rw a -> Effect Int
+lengthBroadcast (IxQueue{broadcast:b}) = do
+   Array.length <$> Ref.read b

@@ -90,7 +90,7 @@ takeIdentity :: forall a
 takeIdentity xs onComplete = do
   q <- One.new
   One.putMany q xs
-  ys <- One.take q
+  ys <- One.takeAll q
   onComplete (ArrayNE.toArray xs == ys)
 
 
@@ -102,9 +102,9 @@ take2ndIdempotent :: forall a
 take2ndIdempotent xs onComplete = do
   q <- One.new
   One.putMany q xs
-  _ <- One.take q
-  ys1 <- One.take q
-  ys2 <- One.take q
+  _ <- One.takeAll q
+  ys1 <- One.takeAll q
+  ys2 <- One.takeAll q
   onComplete (ys1 == ys2 && ys2 == [])
 
 

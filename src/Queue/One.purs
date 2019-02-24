@@ -5,12 +5,16 @@
 module Queue.One
   ( module Queue.Types
   , Queue (..)
+  , new
   ) where
 
 
 import Queue.Types
   ( kind SCOPE, READ, WRITE, class QueueScope, Handler, class QueueExtra, allowWriting, writeOnly
-  , class Queue, new, putMany, popMany, take, on, once, del, read, length, put, pop, draw, drain)
+  , class Queue, put, putMany, pop, popMany, take, takeAll, takeMany, on, once, del, read, length, draw, drain)
+
+import Queue.Types (new) as Q
+
 
 import Prelude (pure, bind, unit, discard, (<$>), (<$), ($))
 import Data.Either (Either (..))
@@ -18,6 +22,7 @@ import Data.Maybe (Maybe (..))
 import Data.Traversable (traverse_, for_)
 import Data.Array (reverse, uncons, snoc, take, drop, length) as Array
 import Control.Monad.Rec.Class (forever)
+import Effect (Effect)
 import Effect.Aff (error, killFiber, joinFiber, delay, forkAff)
 import Effect.Aff.AVar as AVar
 import Effect.Ref (Ref)
@@ -28,6 +33,10 @@ import Effect.Class (liftEffect)
 -- | Represents a singleton queue, with at-most __one__ handler.
 newtype Queue (rw :: # SCOPE) a =
   Queue (Ref (Either (Array a) (Handler a)))
+
+
+new :: forall a. Effect (Queue (read :: READ, write :: WRITE) a)
+new = Q.new
 
 
 instance queueQueueOne :: Queue Queue where

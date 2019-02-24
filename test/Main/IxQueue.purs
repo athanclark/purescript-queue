@@ -33,8 +33,8 @@ putManyAfterOnSync xs onComplete = do
   IxQ.on q k \x -> do
     newXs <- Ref.modify (\ys -> ys `Array.snoc` x) obtained
     if Array.length newXs == ArrayNE.length xs
-       then onComplete (newXs == ArrayNE.toArray xs)
-       else pure unit
+      then onComplete (newXs == ArrayNE.toArray xs)
+      else pure unit
   IxQ.putMany q k xs
 
 
@@ -168,7 +168,7 @@ takeIdentity xs onComplete = do
   q <- IxQ.new
   k <- show <$> genUUID
   IxQ.putMany q k xs
-  ys <- IxQ.take q k
+  ys <- IxQ.takeAll q k
   onComplete (ArrayNE.toArray xs == ys)
 
 
@@ -181,9 +181,9 @@ take2ndIdempotent xs onComplete = do
   q <- IxQ.new
   k <- show <$> genUUID
   IxQ.putMany q k xs
-  _ <- IxQ.take q k
-  ys1 <- IxQ.take q k
-  ys2 <- IxQ.take q k
+  _ <- IxQ.takeAll q k
+  ys1 <- IxQ.takeAll q k
+  ys2 <- IxQ.takeAll q k
   onComplete (ys1 == ys2 && ys2 == [])
 
 

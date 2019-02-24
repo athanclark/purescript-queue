@@ -6,27 +6,27 @@ some kind, and delegate messages to those handlers by issuing events.
 This library is an implementation of a trivial pub/sub model for PureScript:
 
 ```purescript
-import Queue.Types (readOnly, writeOnly, READ, WRITE)
-import Queue (Queue)
-import Queue as Q
+import Queue (Queue, readOnly, writeOnly, READ, WRITE, new, on, put)
 
 
 main :: Effect Unit
 main = do
-  (q :: Queue (read :: READ, write :: WRITE) Int) <- Q.new
+  (q :: Queue (read :: READ, write :: WRITE) Int) <- new
   
-  Q.on (readOnly q) logShow
+  -- assign a handler
+  on (readOnly q) logShow
   
-  Q.put (writeOnly q) 1
-  Q.put q 2 -- Doesn't need to be strictly write-only
+  -- put messages to the queue
+  put (writeOnly q) 1
+  put q 2 -- Doesn't need to be strictly write-only
 ```
 
 > The calls to `readOnly` and `writeOnly` aren't necessary; they're just to demonstrate
-> the ability to quarantine sections of your code which you only which to expose
-> `(read :: READ)` or `(write :: WRITE)` as the facilities available to the queue.
+> the ability to quarantine sections of your code, in which you only which to expose
+> `(read :: READ)` or `(write :: WRITE)` access, as the only facilities available to the queue.
 
 It tries to immitate similar functionality to `Chan`s from Haskell, but isn't nearly as cool.
-We get something similar to it; blocking when data is available, using the `Queue.Aff` module
+We get something similar to it; "blocking" in `Aff` when data is available, using the `Queue.Aff` module
 and its siblings.
 
 The `Queue` module provides a set-like perspective on handlers (you can additively register
@@ -34,7 +34,7 @@ individual event
 handlers, but can only clear them all at once), while the `IxQueue` module treats handlers
 as an _indexed mapping_, allowing you to distinguish which
 handler receives a message (opposed to broadcasting to all handlers), or descrepently remove a
-single handler from the map (can be useful for dynamic allocation of multiple handlers to the same data).
+single handler from the map (can be useful for dynamic allocation and deallocation of multiple handlers to the same data).
 There's also a `Queue.One` module, which has an implementation where there's
 at most _one_ handler on the queue at any given time.
 
@@ -44,12 +44,13 @@ store pending messages first-in-first-out until one is available.
 `Queue` is useful if you know the network of handlers is _static_ for the lifetime of their operation,
 or at least strictly additive. `IxQueue` is useful when you need precice control over the presence of
 handlers in a queue at runtime, each of which receive the same data. `Queue.One` is a convenient
-reduction of `Queue`, where you only need to keep track of a single handler.
+reduction of `Queue`, where you only need to keep track of a single handler. A future implementation may
+implement different variants of these.
 
 ## Async
 
 This library's main goal was to aid in cross-site interopability - almost localized
-RPC mechanisms - through the `Queue.Aff`, `IxQueue.Aff`, and `Queue.One.Aff` modules, we can treat
+RPC mechanisms - through the `IOQueues` and `IxQueue.IOQueues` modules, we can treat
 message passing at a higher level as _procedure invocations_:
 
 ```purescript

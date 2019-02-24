@@ -47,7 +47,7 @@ putManyBroadcastsAfterOnSync xs onComplete = do
           replicateM (n' - 1) x
   replicateM n $ \i -> Q.on q $ \x -> do
     let go' zs = zs `Array.snoc` x
-        go ys = unsafePartial $ case Array.modifyAt (i - 1) go' ys of
+        go ys = unsafePartial $ case Array.modifyAt (i - 1) (_ `Array.snoc` x) ys of
                   Just ys' -> ys'
     newXs <- Ref.modify go obtained
     if Array.all (\x -> Array.length x == ArrayNE.length xs) newXs
@@ -146,7 +146,7 @@ takeIdentity :: forall a
 takeIdentity xs onComplete = do
   q <- Q.new
   Q.putMany q xs
-  ys <- Q.take q
+  ys <- Q.takeAll q
   onComplete (ArrayNE.toArray xs == ys)
 
 
@@ -158,9 +158,9 @@ take2ndIdempotent :: forall a
 take2ndIdempotent xs onComplete = do
   q <- Q.new
   Q.putMany q xs
-  _ <- Q.take q
-  ys1 <- Q.take q
-  ys2 <- Q.take q
+  _ <- Q.takeAll q
+  ys1 <- Q.takeAll q
+  ys2 <- Q.takeAll q
   onComplete (ys1 == ys2 && ys2 == [])
 
 
