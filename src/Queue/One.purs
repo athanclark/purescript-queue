@@ -118,10 +118,12 @@ instance queueExtraQueueOne :: QueueExtra Queue where
       newWriter <- forkAff do
         delay toWaitFurther
         liftEffect (put (allowWriting output) x)
+
       mInvoker <- AVar.tryTake writingThread
       case mInvoker of
         Nothing -> pure unit
-        Just i -> killFiber (error "Killing writer") i
+        Just i -> killFiber (error "Killing writer") i -- kills old writer if it exists, preventing bounce
+
       AVar.put newWriter writingThread
     pure {input: writeOnly presented, writer}
   throttleStatic toWaitFurther output = do
@@ -129,13 +131,16 @@ instance queueExtraQueueOne :: QueueExtra Queue where
     writingThread <- AVar.empty
     writer <- forkAff $ forever do
       x <- draw presented
+
       mInvoker <- AVar.tryTake writingThread
       case mInvoker of
         Nothing -> pure unit
-        Just i -> joinFiber i
+        Just i -> joinFiber i -- wait until previous write is done
+
       newWriter <- forkAff do
         delay toWaitFurther
         liftEffect (put (allowWriting output) x)
+
       AVar.put newWriter writingThread
     pure {input: writeOnly presented, writer}
   intersperseStatic timeBetween xM output = do
@@ -146,6 +151,7 @@ instance queueExtraQueueOne :: QueueExtra Queue where
       case mInvoker of
         Nothing -> pure unit
         Just i -> joinFiber i
+
       newWriter <- forkAff do
         delay timeBetween
         x <- xM
@@ -153,9 +159,11 @@ instance queueExtraQueueOne :: QueueExtra Queue where
       AVar.put newWriter writingThread
     listener <- forkAff $ forever do
       y <- draw presented
+
       mInvoker <- AVar.tryTake writingThread
       case mInvoker of
         Nothing -> pure unit
-        Just i -> killFiber (error "Killing listener") i
+        Just i -> killFiber (error "Killing listener") i -- kill interspersed message
+
       liftEffect (put (allowWriting output) y)
     pure {input: writeOnly presented, writer, listener}
