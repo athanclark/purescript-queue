@@ -77,8 +77,8 @@ Initially, when using `new`, a queue is both read and write accessible, through 
 This may be undesirable for complex networks of queues, where one section of code clearly only supplies data, while another
 one clearly only consumes it. There are functions for changing this:
 
-- `readOnly` removes the `read :: READ` label from the row type
-- `writeOnly` removes the `write :: WRITE` label from the row type
+- `readOnly` removes the `write :: WRITE` label from the row type
+- `writeOnly` removes the `read :: READ` label from the row type
 - `allowReading` adds the `read :: READ` label back to the row type
 - `allowWriting` adds the `write :: WRITE` label back to the row type
 
@@ -115,9 +115,9 @@ In the `module IOQueues` and `module IxQueue.IOQueues` modules, there's some som
 
 - `new` creates an `IOQueues` - a pair of queues; one for input, one for output.
 - `callAsync` puts an input in the `IOQueues`, and blocks until an output is available in `Aff`.
+- `callAsyncEff` does the same thing as `callAsync`, but can't block in `Aff` and only operates in `Effect`.
 - `registerSync` attaches a processing function to the `IOQueues`, taking an input and returning an output,
   but does so in lock-step - atomically adding a function to the system synchronously.
-- `callAsyncEff` does the same thing as `callAsync`, but can't block in `Aff` and only operates in `Effect`.
 - `registerSyncOnce` does the same thing as `registerSync`, but removes itself after being invoked once.
 
 
