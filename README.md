@@ -1,5 +1,8 @@
 # PureScript-Queue
 
+[![Build Status](https://travis-ci.org/athanclark/purescript-queue.svg?branch=master)](https://travis-ci.org/athanclark/purescript-queue)
+[![Pursuit](https://pursuit.purescript.org/packages/purescript-queue/badge)](https://pursuit.purescript.org/packages/purescript-queue)
+
 The pub/sub model captures a simple concept - assign "handlers" to an event manager of
 some kind, and delegate messages to those handlers by issuing events. This is also considered
 a "channel" in Haskell - something that stores messages until they are read.
