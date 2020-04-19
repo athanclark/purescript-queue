@@ -1,0 +1,19 @@
+{
+  "name": "purescript-queue",
+  "set": "psc-0.13.6-20200404",
+  "source": "https://github.com/purescript/package-sets.git",
+  "depends": [
+    "prelude",
+    "aff",
+    "avar",
+    "console",
+    "effect",
+    "foreign-object",
+    "prelude",
+    "refs",
+    "js-timers",
+    "psci-support",
+    "quickcheck",
+    "uuid"
+  ]
+}
